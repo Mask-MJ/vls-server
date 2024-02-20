@@ -84,6 +84,13 @@ async function main() {
                   sort: 2,
                   parentId: 3,
                 },
+                {
+                  name: '菜单管理',
+                  path: '/settings/menus',
+                  icon: 'i-line-md:menu',
+                  sort: 3,
+                  parentId: 3,
+                },
                 // { name: '评分项管理', path: '/menu', icon: 'menu', sort: 8 },
                 // { name: '数据统计', path: '/menu', icon: 'menu', sort: 9 },
               ],
