@@ -1,0 +1,78 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int       @id @default(autoincrement())
+  account   String    @unique
+  password  String
+  nickname  String    @default("")
+  status    Int       @default(1)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  roles     Role[]
+  Factory   Factory[]
+  valves    Valve[]
+}
+
+model Role {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  roleKey   String   @unique
+  status    Int      @default(1)
+  sort      Int      @default(1)
+  remark    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  users     User[]
+  menus     Menu[]
+}
+
+model Menu {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  path      String   @unique
+  icon      String   @default("")
+  hidden    Boolean  @default(false)
+  parentId  Int      @default(0)
+  status    Int      @default(1)
+  sort      Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  roles     Role[]
+}
+
+model Factory {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  status    Int      @default(1)
+  address   String   @default("")
+  location  Int[]    @default([])
+  remark    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  createrId Int
+  users     User[]
+  valves    Valve[]
+}
+
+model Valve {
+  id        Int      @id @default(autoincrement())
+  name      String
+  status    Int      @default(1)
+  remark    String   @default("")
+  factoryId Int
+  factory   Factory  @relation(fields: [factoryId], references: [id])
+  createrId Int
+  creater   User     @relation(fields: [createrId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
