@@ -38,7 +38,7 @@ async function main() {
                 },
                 {
                   name: '系统设置',
-                  path: '/settings',
+                  path: '/system',
                   icon: 'i-line-md:cog-loop',
                   sort: 3,
                 },
@@ -72,21 +72,21 @@ async function main() {
                 },
                 {
                   name: '用户管理',
-                  path: '/settings/users',
+                  path: '/system/users',
                   icon: 'i-line-md:account ',
                   sort: 1,
                   parentId: 3,
                 },
                 {
                   name: '角色管理',
-                  path: '/settings/roles',
+                  path: '/system/roles',
                   icon: 'i-line-md:text-box-multiple',
                   sort: 2,
                   parentId: 3,
                 },
                 {
                   name: '菜单管理',
-                  path: '/settings/menus',
+                  path: '/system/menus',
                   icon: 'i-line-md:menu',
                   sort: 3,
                   parentId: 3,

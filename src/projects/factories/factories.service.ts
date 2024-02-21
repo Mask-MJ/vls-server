@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
 import { CreateFactoryDto } from './dto/create-factory.dto';
 import { UpdateFactoryDto } from './dto/update-factory.dto';
 import { PrismaService } from 'nestjs-prisma';
@@ -15,14 +15,16 @@ export class FactoriesService {
       where: { name: createFactoryDto.name },
     });
     if (existingFactory) {
-      throw new Error('工厂已存在');
+      throw new ConflictException('工厂已存在');
     }
     return await this.prisma.factory.create({
       data: {
         ...createFactoryDto,
         createrId: user.sub,
         users: {
-          connect: createFactoryDto.users?.map((userId) => ({ id: userId })),
+          connect: createFactoryDto.users
+            ?.map((id) => ({ id }))
+            .concat({ id: user.sub }),
         },
         valves: {
           connect: createFactoryDto.valves?.map((id) => ({ id })),
@@ -32,17 +34,25 @@ export class FactoriesService {
   }
 
   async findAll(
+    user: ActiveUserData,
     paginationQueryDto: PaginationQueryDto,
     queryFactoryDto: QueryFactoryDto,
   ) {
     const { page, pageSize } = paginationQueryDto;
     const { name, status } = queryFactoryDto;
+    const userInfo = await this.prisma.user.findUnique({
+      where: { id: user.sub },
+      include: { roles: true },
+    });
+    const hasAdmin = userInfo?.roles.some((role) => role.roleKey === 'admin');
+    // 管理员可以查看所有工厂
     const factories = await this.prisma.factory.findMany({
       take: pageSize,
       skip: (page - 1) * pageSize,
       where: {
         name: { contains: name },
         status: status,
+        users: hasAdmin ? undefined : { some: { id: user.sub } },
       },
       include: { users: true },
     });
@@ -71,7 +81,7 @@ export class FactoriesService {
       data: {
         ...updateFactoryDto,
         users: {
-          connect: updateFactoryDto.users?.map((userId) => ({ id: userId })),
+          set: updateFactoryDto.users?.map((userId) => ({ id: userId })),
         },
         valves: {
           connect: updateFactoryDto.valves?.map((id) => ({ id })),

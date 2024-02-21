@@ -43,10 +43,15 @@ export class FactoriesController {
   @ApiOperation({ summary: '获取工厂列表' })
   @ApiOkResponse({ type: Factory, isArray: true })
   findAll(
+    @ActiveUser() user: ActiveUserData,
     @Query() paginationQueryDto: PaginationQueryDto,
     @Query() queryFactoryDto: QueryFactoryDto,
   ) {
-    return this.factoriesService.findAll(paginationQueryDto, queryFactoryDto);
+    return this.factoriesService.findAll(
+      user,
+      paginationQueryDto,
+      queryFactoryDto,
+    );
   }
 
   @Get(':id')

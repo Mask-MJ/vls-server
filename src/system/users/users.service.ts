@@ -30,17 +30,19 @@ export class UsersService {
     });
   }
 
-  findAll(paginationQueryDto: PaginationQueryDto, queryUserDto: QueryUserDto) {
+  async findAll(
+    paginationQueryDto: PaginationQueryDto,
+    queryUserDto: QueryUserDto,
+  ) {
     const { page, pageSize } = paginationQueryDto;
-    const { account, nickname, roles, status, beginTime, endTime } =
-      queryUserDto;
+    const { account, nickname, status, beginTime, endTime } = queryUserDto;
+
     return this.prisma.user.findMany({
       take: pageSize,
       skip: (page - 1) * pageSize,
       where: {
         account: { contains: account },
         nickname: { contains: nickname },
-        roles: { some: { id: { in: roles } } },
         status: status,
         createdAt: { gte: beginTime, lte: endTime },
       },
