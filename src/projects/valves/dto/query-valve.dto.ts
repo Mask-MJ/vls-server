@@ -5,7 +5,6 @@ export class QueryValveDto {
   @IsString()
   name?: string;
 
-  @IsNumber()
   factoryId: number;
 
   @IsOptional()

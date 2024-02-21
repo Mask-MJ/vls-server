@@ -21,6 +21,8 @@ import {
 import { Valve } from './entities/valve.entity';
 import { PaginationQueryDto } from 'src/common/dto/pagination-query.dto';
 import { QueryValveDto } from './dto/query-valve.dto';
+import { ActiveUser } from 'src/iam/decorators/active-user.decorator';
+import { ActiveUserData } from 'src/iam/interfaces/active-user-data.interface';
 
 @ApiTags('阀门管理')
 @ApiBearerAuth('bearer')
@@ -31,8 +33,11 @@ export class ValvesController {
   @Post()
   @ApiOperation({ summary: '创建阀门' })
   @ApiCreatedResponse({ type: Valve })
-  create(@Body() createValveDto: CreateValveDto) {
-    return this.valvesService.create(createValveDto);
+  create(
+    @ActiveUser() user: ActiveUserData,
+    @Body() createValveDto: CreateValveDto,
+  ) {
+    return this.valvesService.create(user, createValveDto);
   }
 
   @Get()

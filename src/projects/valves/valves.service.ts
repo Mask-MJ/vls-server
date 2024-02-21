@@ -4,13 +4,19 @@ import { UpdateValveDto } from './dto/update-valve.dto';
 import { PrismaService } from 'nestjs-prisma';
 import { PaginationQueryDto } from 'src/common/dto/pagination-query.dto';
 import { QueryValveDto } from './dto/query-valve.dto';
+import { ActiveUserData } from 'src/iam/interfaces/active-user-data.interface';
 
 @Injectable()
 export class ValvesService {
   constructor(private prisma: PrismaService) {}
 
-  create(createValveDto: CreateValveDto) {
-    return this.prisma.valve.create({ data: createValveDto });
+  create(user: ActiveUserData, createValveDto: CreateValveDto) {
+    return this.prisma.valve.create({
+      data: {
+        ...createValveDto,
+        createrId: user.sub,
+      },
+    });
   }
 
   findAll(
