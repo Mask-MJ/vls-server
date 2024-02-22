@@ -1,3 +1,4 @@
+import { Type } from 'class-transformer';
 import { IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class QueryValveDto {
@@ -5,7 +6,9 @@ export class QueryValveDto {
   @IsString()
   name?: string;
 
-  factoryId: number;
+  @IsOptional()
+  @Type(() => Number)
+  factoryId?: number;
 
   @IsOptional()
   @IsNumber()
