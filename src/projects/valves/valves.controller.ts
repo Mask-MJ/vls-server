@@ -44,30 +44,30 @@ export class ValvesController {
   @ApiOperation({ summary: '获取阀门列表' })
   @ApiOkResponse({ type: Valve, isArray: true })
   findAll(
+    @ActiveUser() user: ActiveUserData,
     @Query() paginationQueryDto: PaginationQueryDto,
     @Query() queryValveDto: QueryValveDto,
   ) {
-    return this.valvesService.findAll(paginationQueryDto, queryValveDto);
+    return this.valvesService.findAll(user, paginationQueryDto, queryValveDto);
   }
 
   @Get(':id')
   @ApiOperation({ summary: '获取阀门信息' })
   @ApiOkResponse({ type: Valve })
-  findOne(@Param('id') id: string) {
-    return this.valvesService.findOne(+id);
+  findOne(@Param('id') id: number) {
+    return this.valvesService.findOne(id);
   }
 
   @Patch(':id')
   @ApiOperation({ summary: '更新阀门信息' })
   @ApiOkResponse({ type: Valve })
-  update(@Param('id') id: string, @Body() updateValveDto: UpdateValveDto) {
-    return this.valvesService.update(+id, updateValveDto);
+  update(@Param('id') id: number, @Body() updateValveDto: UpdateValveDto) {
+    return this.valvesService.update(id, updateValveDto);
   }
 
   @Delete(':id')
   @ApiOperation({ summary: '删除阀门' })
-  @ApiOkResponse({ type: Valve })
-  remove(@Param('id') id: string) {
-    return this.valvesService.remove(+id);
+  remove(@Param('id') id: number) {
+    return this.valvesService.remove(id);
   }
 }

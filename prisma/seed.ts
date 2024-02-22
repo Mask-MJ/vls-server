@@ -31,7 +31,7 @@ async function main() {
                   sort: 1,
                 },
                 {
-                  name: '项目管理',
+                  name: '业务功能',
                   path: '/projects',
                   icon: 'i-line-md:clipboard-list',
                   sort: 2,
@@ -57,13 +57,6 @@ async function main() {
                   parentId: 2,
                 },
                 {
-                  name: '关键字管理',
-                  path: '/projects/keywords',
-                  icon: 'i-line-md:list-3 ',
-                  sort: 3,
-                  parentId: 2,
-                },
-                {
                   name: '分析任务管理',
                   path: '/projects/tasks',
                   icon: 'i-line-md:check-list-3 ',
@@ -82,6 +75,20 @@ async function main() {
                   path: '/system/roles',
                   icon: 'i-line-md:text-box-multiple',
                   sort: 2,
+                  parentId: 3,
+                },
+                {
+                  name: '模板管理',
+                  path: '/system/templates',
+                  icon: 'i-line-md:clipboard-plus',
+                  sort: 3,
+                  parentId: 3,
+                },
+                {
+                  name: '关键字管理',
+                  path: '/system/dicts',
+                  icon: 'i-line-md:list-3 ',
+                  sort: 3,
                   parentId: 3,
                 },
                 {

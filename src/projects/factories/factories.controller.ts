@@ -55,17 +55,17 @@ export class FactoriesController {
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.factoriesService.findOne(+id);
+  findOne(@Param('id') id: number) {
+    return this.factoriesService.findOne(id);
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() updateFactoryDto: UpdateFactoryDto) {
-    return this.factoriesService.update(+id, updateFactoryDto);
+  update(@Param('id') id: number, @Body() updateFactoryDto: UpdateFactoryDto) {
+    return this.factoriesService.update(id, updateFactoryDto);
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.factoriesService.remove(+id);
+  remove(@Param('id') id: number) {
+    return this.factoriesService.remove(id);
   }
 }

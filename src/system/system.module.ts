@@ -8,7 +8,10 @@ import { BcryptService } from 'src/iam/hashing/bcrypt.service';
 import { PrismaModule } from 'nestjs-prisma';
 import { MenusService } from './menus/menus.service';
 import { MenusController } from './menus/menus.controller';
-
+import { TemplatesService } from './templates/templates.service';
+import { TemplatesController } from './templates/templates.controller';
+import { DictsService } from './dicts/dicts.service';
+import { DictsController } from './dicts/dicts.controller';
 @Module({
   imports: [PrismaModule],
   providers: [
@@ -16,7 +19,15 @@ import { MenusController } from './menus/menus.controller';
     RolesService,
     UsersService,
     MenusService,
+    TemplatesService,
+    DictsService,
   ],
-  controllers: [RolesController, UsersController, MenusController],
+  controllers: [
+    RolesController,
+    UsersController,
+    MenusController,
+    TemplatesController,
+    DictsController,
+  ],
 })
 export class SystemModule {}

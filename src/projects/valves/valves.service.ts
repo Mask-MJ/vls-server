@@ -11,29 +11,49 @@ export class ValvesService {
   constructor(private prisma: PrismaService) {}
 
   create(user: ActiveUserData, createValveDto: CreateValveDto) {
-    return this.prisma.valve.create({
-      data: {
-        ...createValveDto,
-        createrId: user.sub,
-      },
-    });
+    return this.prisma.valve.create({ data: createValveDto });
   }
 
-  findAll(
+  async findAll(
+    user: ActiveUserData,
     paginationQueryDto: PaginationQueryDto,
     queryValveDto: QueryValveDto,
   ) {
     const { page, pageSize } = paginationQueryDto;
     const { name, factoryId, status } = queryValveDto;
-    return this.prisma.valve.findMany({
-      take: pageSize,
-      skip: (page - 1) * pageSize,
-      where: {
-        name: { contains: name },
-        factoryId,
-        status,
-      },
+    const userInfo = await this.prisma.user.findUnique({
+      where: { id: user.sub },
+      include: { roles: true },
     });
+    const hasAdmin = userInfo?.roles.some((role) => role.roleKey === 'admin');
+    // 管理员可以查看所有阀门
+    if (hasAdmin) {
+      return this.prisma.valve.findMany({
+        take: pageSize,
+        skip: (page - 1) * pageSize,
+        where: {
+          name: { contains: name },
+          factoryId,
+          status,
+        },
+      });
+    } else {
+      // 查找用户所属工厂的阀门
+      const factories = await this.prisma.factory.findMany({
+        where: { users: { some: { id: user.sub } } },
+        select: { id: true },
+      });
+      const factoryIds = factories.map((factory) => factory.id);
+      return this.prisma.valve.findMany({
+        take: pageSize,
+        skip: (page - 1) * pageSize,
+        where: {
+          name: { contains: name },
+          factoryId: { in: factoryIds },
+          status,
+        },
+      });
+    }
   }
 
   findOne(id: number) {

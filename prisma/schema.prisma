@@ -11,16 +11,16 @@ datasource db {
 }
 
 model User {
-  id        Int       @id @default(autoincrement())
-  account   String    @unique
+  id        Int        @id @default(autoincrement())
+  account   String     @unique
   password  String
-  nickname  String    @default("")
-  status    Int       @default(1)
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  nickname  String     @default("")
+  status    Int        @default(1)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
   roles     Role[]
   Factory   Factory[]
-  valves    Valve[]
+  template  Template[]
 }
 
 model Role {
@@ -71,8 +71,28 @@ model Valve {
   remark    String   @default("")
   factoryId Int
   factory   Factory  @relation(fields: [factoryId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Template {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  remark    String   @default("")
   createrId Int
   creater   User     @relation(fields: [createrId], references: [id])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  dict      Dict[]
+}
+
+model Dict {
+  id         Int      @id @default(autoincrement())
+  name       String
+  value      String
+  remark     String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  Template   Template @relation(fields: [templateId], references: [id])
+  templateId Int
 }
