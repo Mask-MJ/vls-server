@@ -39,5 +39,7 @@ services:
     restart: always
     ports:
       - ${MINIO_PORT}:9000
+    env_file:
+      - .env
     volumes:
       - /var/www/vls/minio:/data
