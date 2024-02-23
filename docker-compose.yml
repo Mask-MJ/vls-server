@@ -34,7 +34,7 @@ services:
     volumes:
       - /var/www/vls/redis:/data
   minio:
-    image: minio
+    image: minio/minio
     container_name: minio
     restart: always
     ports:
