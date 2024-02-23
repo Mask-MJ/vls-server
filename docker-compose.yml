@@ -37,10 +37,12 @@ services:
     image: bitnami/minio
     container_name: minio
     restart: always
+    privileged: true
     ports:
       - ${MINIO_PORT}:9000
       - ${MINIO_CLIENT_PORT}:9001
     env_file:
       - .env
     volumes:
-      - /var/www/vls/minio:/data
+      - /var/www/vls/minio/data:/data
+      - /var/www/vls/minio/config:/root/.minio
