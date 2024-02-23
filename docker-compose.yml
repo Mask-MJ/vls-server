@@ -10,6 +10,7 @@ services:
     depends_on:
       # - postgres
       - redis
+      - minio
     env_file:
       - .env
 
@@ -32,3 +33,11 @@ services:
       - ${REDIS_PORT}:6379
     volumes:
       - /var/www/vls/redis:/data
+  minio:
+    image: minio
+    container_name: minio
+    restart: always
+    ports:
+      - ${MINIO_PORT}:9000
+    volumes:
+      - /var/www/vls/minio:/data
