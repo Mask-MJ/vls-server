@@ -61,6 +61,8 @@ model DictData {
   lowerLimit String?
   /// 上限值
   upperLimit String?
+  /// 单位（用于图表 Y 轴显示）
+  unit       String?
   dictType   DictType      @relation(fields: [dictTypeId], references: [id], onDelete: Cascade)
   tree       DictDataTree? @relation(fields: [treeId], references: [id], onDelete: Cascade)
 

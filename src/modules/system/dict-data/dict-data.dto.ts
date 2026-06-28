@@ -93,6 +93,14 @@ export class CreateDictDataDto {
   lowerLimit?: string;
 
   /**
+   * 单位（图表 Y 轴显示）
+   * @example '%'
+   */
+  @IsString()
+  @IsOptional()
+  unit?: string;
+
+  /**
    * 字典类型ID
    * @example 1
    */

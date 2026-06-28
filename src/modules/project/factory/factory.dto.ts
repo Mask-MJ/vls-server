@@ -1,5 +1,5 @@
 import { IntersectionType, PartialType, PickType } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsString,
   IsOptional,
@@ -7,6 +7,7 @@ import {
   IsNumber,
   IsArray,
 } from 'class-validator';
+import dayjs from 'dayjs';
 import { TimeDto, uploadDto } from 'src/common/dto/base.dto';
 
 export class CreateFactoryDto {
@@ -112,6 +113,16 @@ export class QueryFactoryDto extends PartialType(
   @Type(() => Number)
   @IsNumber()
   filterId?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @Transform(({ value }) => dayjs(value).format(), { toClassOnly: true })
+  updatedBeginTime?: Date;
+
+  @IsOptional()
+  @Type(() => Number)
+  @Transform(({ value }) => dayjs(value).format(), { toClassOnly: true })
+  updatedEndTime?: Date;
 }
 
 export class UpdateFactoryDto extends PartialType(CreateFactoryDto) {
