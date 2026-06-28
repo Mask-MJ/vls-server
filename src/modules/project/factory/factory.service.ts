@@ -75,7 +75,14 @@ export class FactoryService {
   }
 
   async findAll(user: ActiveUserData, queryFactoryDto: QueryFactoryDto) {
-    const { name, beginTime, endTime, filterId } = queryFactoryDto;
+    const {
+      name,
+      beginTime,
+      endTime,
+      filterId,
+      updatedBeginTime,
+      updatedEndTime,
+    } = queryFactoryDto;
     const userData = await this.prismaService.client.user.findUnique({
       where: { id: user.sub },
       include: { role: true },
@@ -84,6 +91,9 @@ export class FactoryService {
       name: { contains: name, mode: 'insensitive' as const },
       NOT: { id: filterId, parentId: filterId },
       createdAt: { gte: beginTime, lte: endTime },
+      ...(updatedBeginTime || updatedEndTime
+        ? { updatedAt: { gte: updatedBeginTime, lte: updatedEndTime } }
+        : {}),
     };
     if (hasAllFactoryScope(userData)) {
       const factories = await this.prismaService.client.factory.findMany({
