@@ -12,6 +12,7 @@ export class DictDataEntity implements DictData {
   chartType: string;
   upperLimit: string | null;
   lowerLimit: string | null;
+  unit: string | null;
   dictTypeId: number;
   treeId: number | null;
   createBy: string;
