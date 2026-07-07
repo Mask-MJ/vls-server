@@ -6,9 +6,14 @@ import {
   IsBoolean,
   IsNumber,
   IsArray,
+  IsIn,
 } from 'class-validator';
 import dayjs from 'dayjs';
 import { TimeDto, uploadDto } from 'src/common/dto/base.dto';
+
+export const FACTORY_SORT_FIELDS = ['createdAt', 'updatedAt'] as const;
+export type FactorySortField = (typeof FACTORY_SORT_FIELDS)[number];
+export type SortOrder = 'asc' | 'desc';
 
 export class CreateFactoryDto {
   /**
@@ -123,6 +128,14 @@ export class QueryFactoryDto extends PartialType(
   @Type(() => Number)
   @Transform(({ value }) => dayjs(value).format(), { toClassOnly: true })
   updatedEndTime?: Date;
+
+  @IsOptional()
+  @IsIn(FACTORY_SORT_FIELDS)
+  sortBy?: FactorySortField;
+
+  @IsOptional()
+  @IsIn(['asc', 'desc'])
+  sortOrder?: SortOrder;
 }
 
 export class UpdateFactoryDto extends PartialType(CreateFactoryDto) {

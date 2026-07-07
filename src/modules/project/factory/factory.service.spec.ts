@@ -72,6 +72,30 @@ describe('FactoryService - findAll scope', () => {
     const where = factoryFindMany.mock.calls[0][0].where;
     expect(where.role).toEqual({ some: { id: { in: [7] } } });
   });
+
+  it('default orderBy → updatedAt desc then createdAt desc', async () => {
+    userFindUnique.mockResolvedValue({ isAdmin: true, role: [] });
+    await service.findAll(buildUser(), {} as any);
+    const orderBy = factoryFindMany.mock.calls[0][0].orderBy;
+    expect(orderBy).toEqual([{ updatedAt: 'desc' }, { createdAt: 'desc' }]);
+  });
+
+  it('sortBy=createdAt&sortOrder=asc → single orderBy respected', async () => {
+    userFindUnique.mockResolvedValue({ isAdmin: true, role: [] });
+    await service.findAll(buildUser(), {
+      sortBy: 'createdAt',
+      sortOrder: 'asc',
+    } as any);
+    const orderBy = factoryFindMany.mock.calls[0][0].orderBy;
+    expect(orderBy).toEqual([{ createdAt: 'asc' }]);
+  });
+
+  it('sortBy without sortOrder → defaults to desc', async () => {
+    userFindUnique.mockResolvedValue({ isAdmin: true, role: [] });
+    await service.findAll(buildUser(), { sortBy: 'updatedAt' } as any);
+    const orderBy = factoryFindMany.mock.calls[0][0].orderBy;
+    expect(orderBy).toEqual([{ updatedAt: 'desc' }]);
+  });
 });
 
 describe('FactoryService - findAllList scope', () => {

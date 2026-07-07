@@ -82,6 +82,8 @@ export class FactoryService {
       filterId,
       updatedBeginTime,
       updatedEndTime,
+      sortBy,
+      sortOrder,
     } = queryFactoryDto;
     const userData = await this.prismaService.client.user.findUnique({
       where: { id: user.sub },
@@ -95,10 +97,15 @@ export class FactoryService {
         ? { updatedAt: { gte: updatedBeginTime, lte: updatedEndTime } }
         : {}),
     };
+    // 默认 updatedAt desc(最近变化在上,客户 #12 加"更新时间"筛选的直觉);
+    // createdAt 兜底稳定同刻记录的相对顺序
+    const orderBy = sortBy
+      ? [{ [sortBy]: sortOrder ?? 'desc' }]
+      : [{ updatedAt: 'desc' as const }, { createdAt: 'desc' as const }];
     if (hasAllFactoryScope(userData)) {
       const factories = await this.prismaService.client.factory.findMany({
         where: baseWhere,
-        orderBy: { createdAt: 'desc' },
+        orderBy,
       });
       return {
         totalCount: factories.length,
@@ -112,7 +119,7 @@ export class FactoryService {
         role: { some: { id: { in: roleIds } } },
       },
       include: { role: true },
-      orderBy: { createdAt: 'desc' },
+      orderBy,
     });
     return {
       totalCount: factories.length,
