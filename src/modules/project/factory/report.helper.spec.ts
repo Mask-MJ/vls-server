@@ -2,8 +2,11 @@ import { PatchType, TableRow } from 'docx';
 import {
   buildAlarmChartOption,
   groupAlarmRows,
+  stripYear,
   table_alarm,
+  table_valves_health_month,
   table_valves_travel_month,
+  textColorForShading,
 } from './report.helper';
 import type { ValveDetailItem } from './report.helper';
 
@@ -126,5 +129,57 @@ describe('table_valves_travel_month', () => {
     });
     const json = JSON.stringify(result);
     expect(json).toContain('未发现阀门超出有效Cv操作区间');
+  });
+});
+
+describe('stripYear (任务 6/9)', () => {
+  it.each([
+    ['2023年3月', '3月'],
+    ['2025-07', '07'],
+    ['2025/07', '07'],
+    ['7月', '7月'],
+    ['', ''],
+  ])('%s → %s', (input, expected) => {
+    expect(stripYear(input)).toBe(expected);
+  });
+
+  it('accepts number / null / undefined', () => {
+    expect(stripYear(null)).toBe('');
+    expect(stripYear(undefined)).toBe('');
+    expect(stripYear(2025)).toBe('2025');
+  });
+});
+
+describe('textColorForShading (任务 5)', () => {
+  it('returns white on dark backgrounds (紫/红)', () => {
+    expect(textColorForShading('#6e298d')).toBe('#ffffff');
+    expect(textColorForShading('#ff0000')).toBe('#ffffff');
+    expect(textColorForShading('#FF0000')).toBe('#ffffff');
+  });
+
+  it('returns black on light or absent backgrounds', () => {
+    expect(textColorForShading('#ffff00')).toBe('#000000');
+    expect(textColorForShading('#00b050')).toBe('#000000');
+    expect(textColorForShading(null)).toBe('#000000');
+    expect(textColorForShading(undefined)).toBe('#000000');
+  });
+});
+
+describe('table_valves_health_month (任务 2/9)', () => {
+  const input = [
+    {
+      tag: 'FV-1001',
+      data: [
+        { name: '2025年7月', value: 80 },
+        { name: '2025年8月', value: 90 },
+      ],
+    },
+  ];
+
+  it('strips year prefix from header dates (任务 9)', () => {
+    const json = JSON.stringify(table_valves_health_month(input));
+    expect(json).not.toContain('2025年');
+    expect(json).toContain('7月');
+    expect(json).toContain('8月');
   });
 });

@@ -1,6 +1,7 @@
 import * as echarts from 'echarts';
 import {
   AlignmentType,
+  BorderStyle,
   ImageRun,
   Paragraph,
   PatchType,
@@ -16,6 +17,26 @@ import {
 import { readFileSync } from 'fs';
 import dayjs from 'dayjs';
 import { find } from 'lodash';
+
+// 去年份: 兼容 "2023年3月" / "2025-07" / "2025/07" → "3月" / "07" / "07"
+export const stripYear = (s: string | number | null | undefined): string =>
+  String(s ?? '').replace(/^\d{4}[年\-/]/, '');
+
+// 深色背景 (紫/红) 上文字需改白色以保证可读性
+const DARK_SHADING = new Set(['#6e298d', '#ff0000']);
+export const textColorForShading = (shading: string | null | undefined): string =>
+  DARK_SHADING.has(String(shading || '').toLowerCase()) ? '#ffffff' : '#000000';
+
+// 窗边框 (行程历史 / 周期计数页要求)
+const BOX_BORDER = { style: BorderStyle.SINGLE, size: 4, color: '000000' };
+const TABLE_BORDERS = {
+  top: BOX_BORDER,
+  bottom: BOX_BORDER,
+  left: BOX_BORDER,
+  right: BOX_BORDER,
+  insideHorizontal: BOX_BORDER,
+  insideVertical: BOX_BORDER,
+};
 
 interface ReportProblemTable {
   tag: string;
@@ -404,12 +425,13 @@ export const table_valves_health_month = (
           renderTableHeaderRow([
             '序号',
             '阀门位号',
-            ...data[0].data.map((i) => i.name),
+            ...data[0].data.map((i) => stripYear(i.name)),
           ]),
           ...data.map((item, index) => {
             return new TableRow({
               children: [
                 new TableCell({
+                  verticalAlign: VerticalAlign.CENTER,
                   children: [
                     new Paragraph({
                       alignment: AlignmentType.CENTER,
@@ -418,8 +440,10 @@ export const table_valves_health_month = (
                   ],
                 }),
                 new TableCell({
+                  verticalAlign: VerticalAlign.CENTER,
                   children: [
                     new Paragraph({
+                      alignment: AlignmentType.CENTER,
                       children: [new TextRun({ text: item.tag })],
                     }),
                   ],
@@ -685,6 +709,7 @@ export const table_valves_travel_month = (data: ValveTravelHistoryRecord) => {
     type: PatchType.DOCUMENT,
     children: [
       new Table({
+        borders: TABLE_BORDERS,
         rows: [
           renderTableHeaderRow(tableHeaderRow),
           ...data.records.map((item) => {
@@ -710,7 +735,7 @@ export const table_valves_travel_month = (data: ValveTravelHistoryRecord) => {
                       children: [
                         new TextRun({
                           text: getCellValue(cell),
-                          color: cell.style ? '#000000' : '#000000',
+                          color: textColorForShading(cell.style),
                         }),
                       ],
                     }),
@@ -790,7 +815,7 @@ export const table_cyclecount_travelaccumulate = (
       children: [
         new Paragraph({
           alignment: AlignmentType.CENTER,
-          children: [new TextRun({ text: item + '', color: '#ffffff' })],
+          children: [new TextRun({ text: stripYear(item), color: '#ffffff' })],
         }),
       ],
       verticalAlign: VerticalAlign.CENTER,
@@ -814,6 +839,7 @@ export const table_cyclecount_travelaccumulate = (
     children: [
       new Table({
         width: { size: 100, type: WidthType.PERCENTAGE },
+        borders: TABLE_BORDERS,
         rows: [
           row1,
           new TableRow({
@@ -857,7 +883,6 @@ export const table_cyclecount_travelaccumulate = (
             ];
             // 获取阀门月份数组
             const valveMonth = item.data.map((i) => i.time);
-            console.log(valveMonth);
             const valveHeader = [
               'cycleCount',
               'dailyMovementCount',
