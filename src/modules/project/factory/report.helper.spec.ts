@@ -1,6 +1,7 @@
 import { PatchType, TableRow } from 'docx';
 import {
   buildAlarmChartOption,
+  getMetricConfig,
   groupAlarmRows,
   shadingForCycleCell,
   stripYear,
@@ -70,6 +71,103 @@ describe('buildAlarmChartOption', () => {
     expect(byName['预测线'].itemStyle?.color).toBe('#91cc75'); // ECharts 默认 [1] 绿
     expect(byName['平均值'].itemStyle?.color).toBe('#fac858'); // ECharts 默认 [2] 黄
     expect(byName['标准线'].itemStyle?.color).toBe('#ee6666'); // ECharts 默认 [3] 红
+  });
+});
+
+describe('getMetricConfig (任务 7/8/13)', () => {
+  it('returns unit + title for 行程', () => {
+    expect(getMetricConfig('行程')).toEqual({ unit: '%', title: '行程 (%)' });
+  });
+
+  it('matches 行程偏差 exactly, not falls back to 行程', () => {
+    const cfg = getMetricConfig('行程偏差');
+    expect(cfg.unit).toBe('%');
+    expect(cfg.title).toBe('行程偏差 (%)');
+    // 任务 7: ±2% / ±5% 双档
+    expect(cfg.extraMarkLines).toEqual([
+      { name: '+2%', yAxis: 2 },
+      { name: '-2%', yAxis: -2 },
+      { name: '+5%', yAxis: 5 },
+      { name: '-5%', yAxis: -5 },
+    ]);
+  });
+
+  it('matches 反馈信号 with kPa unit', () => {
+    expect(getMetricConfig('反馈信号').unit).toBe('kPa');
+  });
+
+  it('matches 累积器 / 累计器 suffix with y=8 standard line (任务 8)', () => {
+    for (const name of ['累积器', '累计器', '行程累积器', '行程累计器']) {
+      const cfg = getMetricConfig(name);
+      expect(cfg.unit).toBe('次');
+      expect(cfg.extraMarkLines).toEqual([{ name: '标准线', yAxis: 8 }]);
+    }
+  });
+
+  it('returns empty for unknown / missing keyword', () => {
+    expect(getMetricConfig(undefined)).toEqual({});
+    expect(getMetricConfig('')).toEqual({});
+    expect(getMetricConfig('未知指标')).toEqual({});
+  });
+});
+
+describe('buildAlarmChartOption metric awareness (任务 7/8/13)', () => {
+  const basePlot: NonNullable<ValveDetailItem['plot']> = {
+    times: ['t1', 't2'],
+    upperLimit: 5,
+    lowerLimit: 1,
+    dataLine: [2, 3],
+    predictionLine: { linearRegression: [2, 3] },
+    auxiliaryLine: { averageValue: [2.5, 2.5] },
+  };
+
+  it('adds title + Y-axis unit when keywordName provided', () => {
+    const opt = buildAlarmChartOption({ ...basePlot, keywordName: '行程' });
+    expect((opt as { title?: { text: string } }).title?.text).toBe('行程 (%)');
+    expect((opt.yAxis as { name?: string }).name).toBe('%');
+  });
+
+  it('has no title / no unit when keywordName absent (backward compat)', () => {
+    const opt = buildAlarmChartOption(basePlot);
+    expect((opt as { title?: unknown }).title).toBeUndefined();
+    expect((opt.yAxis as { name?: string }).name).toBeUndefined();
+  });
+
+  it('injects ±2%/±5% mark lines for 行程偏差 (任务 7)', () => {
+    const opt = buildAlarmChartOption({
+      ...basePlot,
+      keywordName: '行程偏差',
+    });
+    const markData = (
+      opt.series as Array<{ markLine?: { data: { name: string; yAxis: number }[] } }>
+    )[0].markLine?.data;
+    const names = markData?.map((m) => m.name);
+    expect(names).toEqual(
+      expect.arrayContaining(['下限值', '上限值', '+2%', '-2%', '+5%', '-5%']),
+    );
+  });
+
+  it('injects y=8 mark line for 累积器 (任务 8)', () => {
+    const opt = buildAlarmChartOption({
+      ...basePlot,
+      keywordName: '累积器',
+    });
+    const markData = (
+      opt.series as Array<{ markLine?: { data: { name: string; yAxis: number }[] } }>
+    )[0].markLine?.data;
+    expect(markData).toEqual(
+      expect.arrayContaining([{ name: '标准线', yAxis: 8 }]),
+    );
+  });
+
+  it('expands yAxis range to cover extra mark lines (行程偏差 -5 < lowerLimit=1)', () => {
+    const opt = buildAlarmChartOption({
+      ...basePlot,
+      keywordName: '行程偏差',
+    });
+    // rawMin covers -5 → floor(-5) = -5
+    expect((opt.yAxis as { min: number }).min).toBe(-5);
+    expect((opt.yAxis as { max: number }).max).toBeGreaterThanOrEqual(5);
   });
 });
 

@@ -77,6 +77,8 @@ export interface ValveDetailItem {
   measures: string;
   name: string;
   plot?: {
+    /// 指标名 (行程 / 行程偏差 / 反馈信号 / 累积器 ...), 决定 Y 轴单位与标准线 (任务 7/8/13)
+    keywordName?: string;
     times: string[];
     upperLimit: number;
     lowerLimit: number;
@@ -89,6 +91,54 @@ export interface ValveDetailItem {
     };
   };
 }
+
+// 指标 → 图表配置映射 (任务 7/8/13)
+// 单位 (Y 轴 name) / 图表标题 / 额外标准线 markLine
+// ponytail: 硬编码映射, 客户群增加新指标时在此加一行; 无需过度设计成 DB 配置
+interface MetricConfig {
+  unit?: string;
+  title?: string;
+  extraMarkLines?: { name: string; yAxis: number }[];
+}
+const METRIC_CONFIG: { [key: string]: MetricConfig } = {
+  '行程': { unit: '%', title: '行程 (%)' },
+  '行程偏差': {
+    unit: '%',
+    title: '行程偏差 (%)',
+    // 任务 7: ±2% / ±5% 双档标准线
+    extraMarkLines: [
+      { name: '+2%', yAxis: 2 },
+      { name: '-2%', yAxis: -2 },
+      { name: '+5%', yAxis: 5 },
+      { name: '-5%', yAxis: -5 },
+    ],
+  },
+  '反馈信号': { unit: 'kPa', title: '反馈信号 (kPa)' },
+  // 任务 8: 累积器类型标注 y=8 标准线 (兼容 '累积器'/'累计器'/'行程累积器' 后缀命中)
+  '累积器': {
+    unit: '次',
+    title: '累积器 (次)',
+    extraMarkLines: [{ name: '标准线', yAxis: 8 }],
+  },
+  '累计器': {
+    unit: '次',
+    title: '累计器 (次)',
+    extraMarkLines: [{ name: '标准线', yAxis: 8 }],
+  },
+};
+
+// 从长键到短键匹配, 防 '行程偏差' 被 '行程' 意外命中
+const METRIC_KEYS_LONG_FIRST = Object.keys(METRIC_CONFIG).sort(
+  (a, b) => b.length - a.length,
+);
+export const getMetricConfig = (keywordName?: string): MetricConfig => {
+  if (!keywordName) return {};
+  if (METRIC_CONFIG[keywordName]) return METRIC_CONFIG[keywordName];
+  for (const key of METRIC_KEYS_LONG_FIRST) {
+    if (keywordName.includes(key)) return METRIC_CONFIG[key];
+  }
+  return {};
+};
 interface CycleAccumulation {
   number: number;
   tag: string;
@@ -514,15 +564,23 @@ export function buildAlarmChartOption(
 ) {
   const lowerLimit = Number(plot.lowerLimit || 0);
   const upperLimit = Number(plot.upperLimit || 0);
-  const rawMax = Math.max(...plot.dataLine, upperLimit);
-  const rawMin = Math.min(...plot.dataLine, lowerLimit);
+  const config = getMetricConfig(plot.keywordName);
+  const extraMarks = config.extraMarkLines || [];
+  const extraYs = extraMarks.map((m) => m.yAxis);
+  const rawMax = Math.max(...plot.dataLine, upperLimit, ...extraYs);
+  const rawMin = Math.min(...plot.dataLine, lowerLimit, ...extraYs);
   const labelTop = { show: true, position: 'top' as const, color: '#000000' };
   return {
-    legend: { data: ['数据线', '预测线', '平均值', '标准线'] },
+    // 任务 7: 图表标题 (根据指标类型)
+    ...(config.title ? { title: { text: config.title, left: 'center' } } : {}),
+    legend: { data: ['数据线', '预测线', '平均值', '标准线'], bottom: 0 },
     tooltip: { trigger: 'axis' as const },
     xAxis: { type: 'category' as const, data: plot.times },
+    // 任务 8/13: Y 轴左侧显示单位名称
     yAxis: {
       type: 'value' as const,
+      name: config.unit,
+      nameLocation: 'end' as const,
       max: Math.ceil(rawMax),
       min: Math.floor(rawMin),
     },
@@ -536,9 +594,11 @@ export function buildAlarmChartOption(
         label: labelTop,
         markLine: {
           lineStyle: { color: CHART_COLORS.standardLine },
+          // 任务 7/8: 上下限 + 指标专属额外标准线 (±2%/±5% 或 y=8)
           data: [
             { name: '下限值', yAxis: lowerLimit },
             { name: '上限值', yAxis: upperLimit },
+            ...extraMarks,
           ],
         },
       },
