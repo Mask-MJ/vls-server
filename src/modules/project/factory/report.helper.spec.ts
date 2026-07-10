@@ -1,9 +1,14 @@
 import { PatchType, TableRow } from 'docx';
 import {
   buildAlarmChartOption,
+  getMetricConfig,
   groupAlarmRows,
+  shadingForCycleCell,
+  stripYear,
   table_alarm,
+  table_valves_health_month,
   table_valves_travel_month,
+  textColorForShading,
 } from './report.helper';
 import type { ValveDetailItem } from './report.helper';
 
@@ -69,6 +74,103 @@ describe('buildAlarmChartOption', () => {
   });
 });
 
+describe('getMetricConfig (任务 7/8/13)', () => {
+  it('returns unit + title for 行程', () => {
+    expect(getMetricConfig('行程')).toEqual({ unit: '%', title: '行程 (%)' });
+  });
+
+  it('matches 行程偏差 exactly, not falls back to 行程', () => {
+    const cfg = getMetricConfig('行程偏差');
+    expect(cfg.unit).toBe('%');
+    expect(cfg.title).toBe('行程偏差 (%)');
+    // 任务 7: ±2% / ±5% 双档
+    expect(cfg.extraMarkLines).toEqual([
+      { name: '+2%', yAxis: 2 },
+      { name: '-2%', yAxis: -2 },
+      { name: '+5%', yAxis: 5 },
+      { name: '-5%', yAxis: -5 },
+    ]);
+  });
+
+  it('matches 反馈信号 with kPa unit', () => {
+    expect(getMetricConfig('反馈信号').unit).toBe('kPa');
+  });
+
+  it('matches 累积器 / 累计器 suffix with y=8 standard line (任务 8)', () => {
+    for (const name of ['累积器', '累计器', '行程累积器', '行程累计器']) {
+      const cfg = getMetricConfig(name);
+      expect(cfg.unit).toBe('次');
+      expect(cfg.extraMarkLines).toEqual([{ name: '标准线', yAxis: 8 }]);
+    }
+  });
+
+  it('returns empty for unknown / missing keyword', () => {
+    expect(getMetricConfig(undefined)).toEqual({});
+    expect(getMetricConfig('')).toEqual({});
+    expect(getMetricConfig('未知指标')).toEqual({});
+  });
+});
+
+describe('buildAlarmChartOption metric awareness (任务 7/8/13)', () => {
+  const basePlot: NonNullable<ValveDetailItem['plot']> = {
+    times: ['t1', 't2'],
+    upperLimit: 5,
+    lowerLimit: 1,
+    dataLine: [2, 3],
+    predictionLine: { linearRegression: [2, 3] },
+    auxiliaryLine: { averageValue: [2.5, 2.5] },
+  };
+
+  it('adds title + Y-axis unit when keywordName provided', () => {
+    const opt = buildAlarmChartOption({ ...basePlot, keywordName: '行程' });
+    expect((opt as { title?: { text: string } }).title?.text).toBe('行程 (%)');
+    expect((opt.yAxis as { name?: string }).name).toBe('%');
+  });
+
+  it('has no title / no unit when keywordName absent (backward compat)', () => {
+    const opt = buildAlarmChartOption(basePlot);
+    expect((opt as { title?: unknown }).title).toBeUndefined();
+    expect((opt.yAxis as { name?: string }).name).toBeUndefined();
+  });
+
+  it('injects ±2%/±5% mark lines for 行程偏差 (任务 7)', () => {
+    const opt = buildAlarmChartOption({
+      ...basePlot,
+      keywordName: '行程偏差',
+    });
+    const markData = (
+      opt.series as Array<{ markLine?: { data: { name: string; yAxis: number }[] } }>
+    )[0].markLine?.data;
+    const names = markData?.map((m) => m.name);
+    expect(names).toEqual(
+      expect.arrayContaining(['下限值', '上限值', '+2%', '-2%', '+5%', '-5%']),
+    );
+  });
+
+  it('injects y=8 mark line for 累积器 (任务 8)', () => {
+    const opt = buildAlarmChartOption({
+      ...basePlot,
+      keywordName: '累积器',
+    });
+    const markData = (
+      opt.series as Array<{ markLine?: { data: { name: string; yAxis: number }[] } }>
+    )[0].markLine?.data;
+    expect(markData).toEqual(
+      expect.arrayContaining([{ name: '标准线', yAxis: 8 }]),
+    );
+  });
+
+  it('expands yAxis range to cover extra mark lines (行程偏差 -5 < lowerLimit=1)', () => {
+    const opt = buildAlarmChartOption({
+      ...basePlot,
+      keywordName: '行程偏差',
+    });
+    // rawMin covers -5 → floor(-5) = -5
+    expect((opt.yAxis as { min: number }).min).toBe(-5);
+    expect((opt.yAxis as { max: number }).max).toBeGreaterThanOrEqual(5);
+  });
+});
+
 describe('groupAlarmRows (B1)', () => {
   it('groups rows with same tag + same time into one group, preserving order', () => {
     const groups = groupAlarmRows([
@@ -126,5 +228,85 @@ describe('table_valves_travel_month', () => {
     });
     const json = JSON.stringify(result);
     expect(json).toContain('未发现阀门超出有效Cv操作区间');
+  });
+});
+
+describe('stripYear (任务 6/9)', () => {
+  it.each([
+    ['2023年3月', '3月'],
+    ['2025-07', '07'],
+    ['2025/07', '07'],
+    ['7月', '7月'],
+    ['', ''],
+  ])('%s → %s', (input, expected) => {
+    expect(stripYear(input)).toBe(expected);
+  });
+
+  it('accepts number / null / undefined', () => {
+    expect(stripYear(null)).toBe('');
+    expect(stripYear(undefined)).toBe('');
+    expect(stripYear(2025)).toBe('2025');
+  });
+});
+
+describe('textColorForShading (任务 5)', () => {
+  it('returns white on dark backgrounds (紫/红)', () => {
+    expect(textColorForShading('#6e298d')).toBe('#ffffff');
+    expect(textColorForShading('#ff0000')).toBe('#ffffff');
+    expect(textColorForShading('#FF0000')).toBe('#ffffff');
+  });
+
+  it('returns black on light or absent backgrounds', () => {
+    expect(textColorForShading('#ffff00')).toBe('#000000');
+    expect(textColorForShading('#00b050')).toBe('#000000');
+    expect(textColorForShading(null)).toBe('#000000');
+    expect(textColorForShading(undefined)).toBe('#000000');
+  });
+});
+
+describe('shadingForCycleCell (任务 6)', () => {
+  it('paints yellow when dailyMovementCount > 1440', () => {
+    expect(shadingForCycleCell('dailyMovementCount', 1441, null)).toBe('#ffff00');
+    expect(shadingForCycleCell('dailyMovementCount', 5000, '#ffff00')).toBe('#ffff00');
+  });
+
+  it('keeps existing style at threshold or below', () => {
+    expect(shadingForCycleCell('dailyMovementCount', 1440, null)).toBe('#ffffff');
+    expect(shadingForCycleCell('dailyMovementCount', 100, '#00b050')).toBe('#00b050');
+  });
+
+  it('paints yellow when amplitudePerAction > 8', () => {
+    expect(shadingForCycleCell('amplitudePerAction', 9, null)).toBe('#ffff00');
+    expect(shadingForCycleCell('amplitudePerAction', 8, null)).toBe('#ffffff');
+  });
+
+  it('does not apply threshold to unrelated keys', () => {
+    expect(shadingForCycleCell('cycleCount', 999999, null)).toBe('#ffffff');
+    expect(shadingForCycleCell('travelAccumulator', 999999, '#00b050')).toBe('#00b050');
+  });
+
+  it('tolerates null / empty / non-numeric value', () => {
+    expect(shadingForCycleCell('dailyMovementCount', null, null)).toBe('#ffffff');
+    expect(shadingForCycleCell('dailyMovementCount', '', '#00b050')).toBe('#00b050');
+    expect(shadingForCycleCell('dailyMovementCount', 'abc', null)).toBe('#ffffff');
+  });
+});
+
+describe('table_valves_health_month (任务 2/9)', () => {
+  const input = [
+    {
+      tag: 'FV-1001',
+      data: [
+        { name: '2025年7月', value: 80 },
+        { name: '2025年8月', value: 90 },
+      ],
+    },
+  ];
+
+  it('strips year prefix from header dates (任务 9)', () => {
+    const json = JSON.stringify(table_valves_health_month(input));
+    expect(json).not.toContain('2025年');
+    expect(json).toContain('7月');
+    expect(json).toContain('8月');
   });
 });

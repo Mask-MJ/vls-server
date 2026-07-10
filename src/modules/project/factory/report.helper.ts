@@ -1,6 +1,7 @@
 import * as echarts from 'echarts';
 import {
   AlignmentType,
+  BorderStyle,
   ImageRun,
   Paragraph,
   PatchType,
@@ -16,6 +17,47 @@ import {
 import { readFileSync } from 'fs';
 import dayjs from 'dayjs';
 import { find } from 'lodash';
+
+// 去年份: 兼容 "2023年3月" / "2025-07" / "2025/07" → "3月" / "07" / "07"
+export const stripYear = (s: string | number | null | undefined): string =>
+  String(s ?? '').replace(/^\d{4}[年\-/]/, '');
+
+// 深色背景 (紫/红) 上文字需改白色以保证可读性
+const DARK_SHADING = new Set(['#6e298d', '#ff0000']);
+export const textColorForShading = (shading: string | null | undefined): string =>
+  DARK_SHADING.has(String(shading || '').toLowerCase()) ? '#ffffff' : '#000000';
+
+// 窗边框 (行程历史 / 周期计数页要求)
+const BOX_BORDER = { style: BorderStyle.SINGLE, size: 4, color: '000000' };
+const TABLE_BORDERS = {
+  top: BOX_BORDER,
+  bottom: BOX_BORDER,
+  left: BOX_BORDER,
+  right: BOX_BORDER,
+  insideHorizontal: BOX_BORDER,
+  insideVertical: BOX_BORDER,
+};
+
+// 周期计数超标阈值 (任务 6): 超过则单元格黄底
+// ponytail: 阈值写死, 客户群若需差异化再挪配置
+// 注意: 本文件下方有自定义 `Record` interface, 遮蔽了 TS 内置泛型, 故用对象字面类型
+const CYCLE_OVERLIMIT: { [key: string]: number } = {
+  dailyMovementCount: 1440,
+  amplitudePerAction: 8,
+};
+const OVERLIMIT_SHADING = '#ffff00';
+export const shadingForCycleCell = (
+  key: string,
+  value: string | number | null | undefined,
+  originalStyle: string | null | undefined,
+): string => {
+  const threshold = CYCLE_OVERLIMIT[key];
+  const numeric = Number(value);
+  if (threshold !== undefined && Number.isFinite(numeric) && numeric > threshold) {
+    return OVERLIMIT_SHADING;
+  }
+  return originalStyle || '#ffffff';
+};
 
 interface ReportProblemTable {
   tag: string;
@@ -35,6 +77,8 @@ export interface ValveDetailItem {
   measures: string;
   name: string;
   plot?: {
+    /// 指标名 (行程 / 行程偏差 / 反馈信号 / 累积器 ...), 决定 Y 轴单位与标准线 (任务 7/8/13)
+    keywordName?: string;
     times: string[];
     upperLimit: number;
     lowerLimit: number;
@@ -47,6 +91,54 @@ export interface ValveDetailItem {
     };
   };
 }
+
+// 指标 → 图表配置映射 (任务 7/8/13)
+// 单位 (Y 轴 name) / 图表标题 / 额外标准线 markLine
+// ponytail: 硬编码映射, 客户群增加新指标时在此加一行; 无需过度设计成 DB 配置
+interface MetricConfig {
+  unit?: string;
+  title?: string;
+  extraMarkLines?: { name: string; yAxis: number }[];
+}
+const METRIC_CONFIG: { [key: string]: MetricConfig } = {
+  '行程': { unit: '%', title: '行程 (%)' },
+  '行程偏差': {
+    unit: '%',
+    title: '行程偏差 (%)',
+    // 任务 7: ±2% / ±5% 双档标准线
+    extraMarkLines: [
+      { name: '+2%', yAxis: 2 },
+      { name: '-2%', yAxis: -2 },
+      { name: '+5%', yAxis: 5 },
+      { name: '-5%', yAxis: -5 },
+    ],
+  },
+  '反馈信号': { unit: 'kPa', title: '反馈信号 (kPa)' },
+  // 任务 8: 累积器类型标注 y=8 标准线 (兼容 '累积器'/'累计器'/'行程累积器' 后缀命中)
+  '累积器': {
+    unit: '次',
+    title: '累积器 (次)',
+    extraMarkLines: [{ name: '标准线', yAxis: 8 }],
+  },
+  '累计器': {
+    unit: '次',
+    title: '累计器 (次)',
+    extraMarkLines: [{ name: '标准线', yAxis: 8 }],
+  },
+};
+
+// 从长键到短键匹配, 防 '行程偏差' 被 '行程' 意外命中
+const METRIC_KEYS_LONG_FIRST = Object.keys(METRIC_CONFIG).sort(
+  (a, b) => b.length - a.length,
+);
+export const getMetricConfig = (keywordName?: string): MetricConfig => {
+  if (!keywordName) return {};
+  if (METRIC_CONFIG[keywordName]) return METRIC_CONFIG[keywordName];
+  for (const key of METRIC_KEYS_LONG_FIRST) {
+    if (keywordName.includes(key)) return METRIC_CONFIG[key];
+  }
+  return {};
+};
 interface CycleAccumulation {
   number: number;
   tag: string;
@@ -404,12 +496,13 @@ export const table_valves_health_month = (
           renderTableHeaderRow([
             '序号',
             '阀门位号',
-            ...data[0].data.map((i) => i.name),
+            ...data[0].data.map((i) => stripYear(i.name)),
           ]),
           ...data.map((item, index) => {
             return new TableRow({
               children: [
                 new TableCell({
+                  verticalAlign: VerticalAlign.CENTER,
                   children: [
                     new Paragraph({
                       alignment: AlignmentType.CENTER,
@@ -418,8 +511,10 @@ export const table_valves_health_month = (
                   ],
                 }),
                 new TableCell({
+                  verticalAlign: VerticalAlign.CENTER,
                   children: [
                     new Paragraph({
+                      alignment: AlignmentType.CENTER,
                       children: [new TextRun({ text: item.tag })],
                     }),
                   ],
@@ -469,15 +564,23 @@ export function buildAlarmChartOption(
 ) {
   const lowerLimit = Number(plot.lowerLimit || 0);
   const upperLimit = Number(plot.upperLimit || 0);
-  const rawMax = Math.max(...plot.dataLine, upperLimit);
-  const rawMin = Math.min(...plot.dataLine, lowerLimit);
+  const config = getMetricConfig(plot.keywordName);
+  const extraMarks = config.extraMarkLines || [];
+  const extraYs = extraMarks.map((m) => m.yAxis);
+  const rawMax = Math.max(...plot.dataLine, upperLimit, ...extraYs);
+  const rawMin = Math.min(...plot.dataLine, lowerLimit, ...extraYs);
   const labelTop = { show: true, position: 'top' as const, color: '#000000' };
   return {
-    legend: { data: ['数据线', '预测线', '平均值', '标准线'] },
+    // 任务 7: 图表标题 (根据指标类型)
+    ...(config.title ? { title: { text: config.title, left: 'center' } } : {}),
+    legend: { data: ['数据线', '预测线', '平均值', '标准线'], bottom: 0 },
     tooltip: { trigger: 'axis' as const },
     xAxis: { type: 'category' as const, data: plot.times },
+    // 任务 8/13: Y 轴左侧显示单位名称
     yAxis: {
       type: 'value' as const,
+      name: config.unit,
+      nameLocation: 'end' as const,
       max: Math.ceil(rawMax),
       min: Math.floor(rawMin),
     },
@@ -491,9 +594,11 @@ export function buildAlarmChartOption(
         label: labelTop,
         markLine: {
           lineStyle: { color: CHART_COLORS.standardLine },
+          // 任务 7/8: 上下限 + 指标专属额外标准线 (±2%/±5% 或 y=8)
           data: [
             { name: '下限值', yAxis: lowerLimit },
             { name: '上限值', yAxis: upperLimit },
+            ...extraMarks,
           ],
         },
       },
@@ -685,6 +790,7 @@ export const table_valves_travel_month = (data: ValveTravelHistoryRecord) => {
     type: PatchType.DOCUMENT,
     children: [
       new Table({
+        borders: TABLE_BORDERS,
         rows: [
           renderTableHeaderRow(tableHeaderRow),
           ...data.records.map((item) => {
@@ -710,7 +816,7 @@ export const table_valves_travel_month = (data: ValveTravelHistoryRecord) => {
                       children: [
                         new TextRun({
                           text: getCellValue(cell),
-                          color: cell.style ? '#000000' : '#000000',
+                          color: textColorForShading(cell.style),
                         }),
                       ],
                     }),
@@ -790,7 +896,7 @@ export const table_cyclecount_travelaccumulate = (
       children: [
         new Paragraph({
           alignment: AlignmentType.CENTER,
-          children: [new TextRun({ text: item + '', color: '#ffffff' })],
+          children: [new TextRun({ text: stripYear(item), color: '#ffffff' })],
         }),
       ],
       verticalAlign: VerticalAlign.CENTER,
@@ -814,6 +920,7 @@ export const table_cyclecount_travelaccumulate = (
     children: [
       new Table({
         width: { size: 100, type: WidthType.PERCENTAGE },
+        borders: TABLE_BORDERS,
         rows: [
           row1,
           new TableRow({
@@ -857,7 +964,6 @@ export const table_cyclecount_travelaccumulate = (
             ];
             // 获取阀门月份数组
             const valveMonth = item.data.map((i) => i.time);
-            console.log(valveMonth);
             const valveHeader = [
               'cycleCount',
               'dailyMovementCount',
@@ -881,7 +987,7 @@ export const table_cyclecount_travelaccumulate = (
                           children: [
                             new TextRun({
                               text: `${cell[i].value || ''}`,
-                              color: cell[i].style ? '#000000' : '#000000',
+                              color: '#000000',
                             }),
                           ],
                         }),
@@ -889,7 +995,7 @@ export const table_cyclecount_travelaccumulate = (
                       shading: {
                         fill: 'b79c2f',
                         type: ShadingType.SOLID,
-                        color: cell[i].style || '#ffffff',
+                        color: shadingForCycleCell(i, cell[i].value, cell[i].style),
                       },
                     }),
                   );
