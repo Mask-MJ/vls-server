@@ -38,6 +38,27 @@ const TABLE_BORDERS = {
   insideVertical: BOX_BORDER,
 };
 
+// 周期计数超标阈值 (任务 6): 超过则单元格黄底
+// ponytail: 阈值写死, 客户群若需差异化再挪配置
+// 注意: 本文件下方有自定义 `Record` interface, 遮蔽了 TS 内置泛型, 故用对象字面类型
+const CYCLE_OVERLIMIT: { [key: string]: number } = {
+  dailyMovementCount: 1440,
+  amplitudePerAction: 8,
+};
+const OVERLIMIT_SHADING = '#ffff00';
+export const shadingForCycleCell = (
+  key: string,
+  value: string | number | null | undefined,
+  originalStyle: string | null | undefined,
+): string => {
+  const threshold = CYCLE_OVERLIMIT[key];
+  const numeric = Number(value);
+  if (threshold !== undefined && Number.isFinite(numeric) && numeric > threshold) {
+    return OVERLIMIT_SHADING;
+  }
+  return originalStyle || '#ffffff';
+};
+
 interface ReportProblemTable {
   tag: string;
   name: string;
@@ -906,7 +927,7 @@ export const table_cyclecount_travelaccumulate = (
                           children: [
                             new TextRun({
                               text: `${cell[i].value || ''}`,
-                              color: cell[i].style ? '#000000' : '#000000',
+                              color: '#000000',
                             }),
                           ],
                         }),
@@ -914,7 +935,7 @@ export const table_cyclecount_travelaccumulate = (
                       shading: {
                         fill: 'b79c2f',
                         type: ShadingType.SOLID,
-                        color: cell[i].style || '#ffffff',
+                        color: shadingForCycleCell(i, cell[i].value, cell[i].style),
                       },
                     }),
                   );

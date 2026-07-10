@@ -2,6 +2,7 @@ import { PatchType, TableRow } from 'docx';
 import {
   buildAlarmChartOption,
   groupAlarmRows,
+  shadingForCycleCell,
   stripYear,
   table_alarm,
   table_valves_health_month,
@@ -162,6 +163,34 @@ describe('textColorForShading (任务 5)', () => {
     expect(textColorForShading('#00b050')).toBe('#000000');
     expect(textColorForShading(null)).toBe('#000000');
     expect(textColorForShading(undefined)).toBe('#000000');
+  });
+});
+
+describe('shadingForCycleCell (任务 6)', () => {
+  it('paints yellow when dailyMovementCount > 1440', () => {
+    expect(shadingForCycleCell('dailyMovementCount', 1441, null)).toBe('#ffff00');
+    expect(shadingForCycleCell('dailyMovementCount', 5000, '#ffff00')).toBe('#ffff00');
+  });
+
+  it('keeps existing style at threshold or below', () => {
+    expect(shadingForCycleCell('dailyMovementCount', 1440, null)).toBe('#ffffff');
+    expect(shadingForCycleCell('dailyMovementCount', 100, '#00b050')).toBe('#00b050');
+  });
+
+  it('paints yellow when amplitudePerAction > 8', () => {
+    expect(shadingForCycleCell('amplitudePerAction', 9, null)).toBe('#ffff00');
+    expect(shadingForCycleCell('amplitudePerAction', 8, null)).toBe('#ffffff');
+  });
+
+  it('does not apply threshold to unrelated keys', () => {
+    expect(shadingForCycleCell('cycleCount', 999999, null)).toBe('#ffffff');
+    expect(shadingForCycleCell('travelAccumulator', 999999, '#00b050')).toBe('#00b050');
+  });
+
+  it('tolerates null / empty / non-numeric value', () => {
+    expect(shadingForCycleCell('dailyMovementCount', null, null)).toBe('#ffffff');
+    expect(shadingForCycleCell('dailyMovementCount', '', '#00b050')).toBe('#00b050');
+    expect(shadingForCycleCell('dailyMovementCount', 'abc', null)).toBe('#ffffff');
   });
 });
 
