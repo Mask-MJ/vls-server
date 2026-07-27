@@ -18,9 +18,11 @@ import { readFileSync } from 'fs';
 import dayjs from 'dayjs';
 import { find } from 'lodash';
 
-// 去年份: 兼容 "2023年3月" / "2025-07" / "2025/07" → "3月" / "07" / "07"
+// 去年份: 数据源的表头是日期区间 "2025/01/01-2025/03/31", 也兼容 "2023年3月" / "2025-07"。
+// 必须全局替换而非只去开头, 否则区间后半段的年份会残留 (顾总反馈"年份未完全去除")。
+// 限定 19xx/20xx 前缀, 免得把 "1440-2000" 这类数值当年份误删。
 export const stripYear = (s: string | number | null | undefined): string =>
-  String(s ?? '').replace(/^\d{4}[年\-/]/, '');
+  String(s ?? '').replace(/(?:19|20)\d{2}[年\-/]/g, '');
 
 // 深色背景 (紫/红) 上文字需改白色以保证可读性
 const DARK_SHADING = new Set(['#6e298d', '#ff0000']);
@@ -77,8 +79,12 @@ export interface ValveDetailItem {
   measures: string;
   name: string;
   plot?: {
-    /// 指标名 (行程 / 行程偏差 / 反馈信号 / 累积器 ...), 决定 Y 轴单位与标准线 (任务 7/8/13)
+    /// 指标名 (行程 / 行程偏差 / 供气压力 / 行程累计器 ...), 用于图表标题
     keywordName?: string;
+    /// Y 轴展示单位, 由数据源按关键字给定 ('%' / 'kPa' / '次/日' / '%/次' / '°C' / 'lbf.in' ...)
+    unit?: string;
+    /// 该关键字的标准线阈值, 由数据源给定 (行程偏差 [2,5] / 行程累计器 [5,8] / 供气压力 [60] ...)
+    standardLine?: number[];
     times: string[];
     upperLimit: number;
     lowerLimit: number;
@@ -92,52 +98,27 @@ export interface ValveDetailItem {
   };
 }
 
-// 指标 → 图表配置映射 (任务 7/8/13)
-// 单位 (Y 轴 name) / 图表标题 / 额外标准线 markLine
-// ponytail: 硬编码映射, 客户群增加新指标时在此加一行; 无需过度设计成 DB 配置
-interface MetricConfig {
-  unit?: string;
-  title?: string;
-  extraMarkLines?: { name: string; yAxis: number }[];
-}
-const METRIC_CONFIG: { [key: string]: MetricConfig } = {
-  '行程': { unit: '%', title: '行程 (%)' },
-  '行程偏差': {
-    unit: '%',
-    title: '行程偏差 (%)',
-    // 任务 7: ±2% / ±5% 双档标准线
-    extraMarkLines: [
-      { name: '+2%', yAxis: 2 },
-      { name: '-2%', yAxis: -2 },
-      { name: '+5%', yAxis: 5 },
-      { name: '-5%', yAxis: -5 },
-    ],
-  },
-  '反馈信号': { unit: 'kPa', title: '反馈信号 (kPa)' },
-  // 任务 8: 累积器类型标注 y=8 标准线 (兼容 '累积器'/'累计器'/'行程累积器' 后缀命中)
-  '累积器': {
-    unit: '次',
-    title: '累积器 (次)',
-    extraMarkLines: [{ name: '标准线', yAxis: 8 }],
-  },
-  '累计器': {
-    unit: '次',
-    title: '累计器 (次)',
-    extraMarkLines: [{ name: '标准线', yAxis: 8 }],
-  },
-};
-
-// 从长键到短键匹配, 防 '行程偏差' 被 '行程' 意外命中
-const METRIC_KEYS_LONG_FIRST = Object.keys(METRIC_CONFIG).sort(
-  (a, b) => b.length - a.length,
-);
-export const getMetricConfig = (keywordName?: string): MetricConfig => {
-  if (!keywordName) return {};
-  if (METRIC_CONFIG[keywordName]) return METRIC_CONFIG[keywordName];
-  for (const key of METRIC_KEYS_LONG_FIRST) {
-    if (keywordName.includes(key)) return METRIC_CONFIG[key];
-  }
-  return {};
+// 标准线 markLine (任务 7/8/13)
+// 阈值与单位一律取数据源随 plot 下发的 standardLine / unit, 本仓不再维护一份关键字映射
+// —— 之前硬编码的 '反馈信号' / '累积器' 在数据源的关键字表里根本不存在, 单位始终出不来。
+// 偏差类指标是有向的 (行程偏差 ±2% / ±5%), 其余 (供气压力 / 循环计数 / 行程累计器) 只画正值。
+export const buildStandardMarkLines = (
+  standardLine: number[] | undefined,
+  keywordName: string | undefined,
+  unit: string,
+): { name: string; yAxis: number }[] => {
+  if (!standardLine?.length) return [];
+  const bidirectional = (keywordName || '').includes('偏差');
+  return standardLine
+    .filter((v) => Number.isFinite(Number(v)))
+    .flatMap((v) =>
+      bidirectional
+        ? [
+            { name: `+${v}${unit}`, yAxis: Number(v) },
+            { name: `-${v}${unit}`, yAxis: -Number(v) },
+          ]
+        : [{ name: `${v}${unit}`, yAxis: Number(v) }],
+    );
 };
 interface CycleAccumulation {
   number: number;
@@ -564,22 +545,31 @@ export function buildAlarmChartOption(
 ) {
   const lowerLimit = Number(plot.lowerLimit || 0);
   const upperLimit = Number(plot.upperLimit || 0);
-  const config = getMetricConfig(plot.keywordName);
-  const extraMarks = config.extraMarkLines || [];
+  const unit = plot.unit || '';
+  const extraMarks = buildStandardMarkLines(
+    plot.standardLine,
+    plot.keywordName,
+    unit,
+  );
   const extraYs = extraMarks.map((m) => m.yAxis);
   const rawMax = Math.max(...plot.dataLine, upperLimit, ...extraYs);
   const rawMin = Math.min(...plot.dataLine, lowerLimit, ...extraYs);
   const labelTop = { show: true, position: 'top' as const, color: '#000000' };
+  const title = plot.keywordName
+    ? unit
+      ? `${plot.keywordName} (${unit})`
+      : plot.keywordName
+    : '';
   return {
-    // 任务 7: 图表标题 (根据指标类型)
-    ...(config.title ? { title: { text: config.title, left: 'center' } } : {}),
+    // 任务 7: 图表标题 (指标名 + 单位)
+    ...(title ? { title: { text: title, left: 'center' } } : {}),
     legend: { data: ['数据线', '预测线', '平均值', '标准线'], bottom: 0 },
     tooltip: { trigger: 'axis' as const },
     xAxis: { type: 'category' as const, data: plot.times },
     // 任务 8/13: Y 轴左侧显示单位名称
     yAxis: {
       type: 'value' as const,
-      name: config.unit,
+      name: plot.unit || undefined,
       nameLocation: 'end' as const,
       max: Math.ceil(rawMax),
       min: Math.floor(rawMin),
@@ -594,7 +584,7 @@ export function buildAlarmChartOption(
         label: labelTop,
         markLine: {
           lineStyle: { color: CHART_COLORS.standardLine },
-          // 任务 7/8: 上下限 + 指标专属额外标准线 (±2%/±5% 或 y=8)
+          // 任务 7/8: 上下限 + 数据源下发的该关键字标准线
           data: [
             { name: '下限值', yAxis: lowerLimit },
             { name: '上限值', yAxis: upperLimit },
