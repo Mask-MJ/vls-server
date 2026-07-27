@@ -1,7 +1,7 @@
 import { PatchType, TableRow } from 'docx';
 import {
   buildAlarmChartOption,
-  getMetricConfig,
+  buildStandardMarkLines,
   groupAlarmRows,
   shadingForCycleCell,
   stripYear,
@@ -74,17 +74,9 @@ describe('buildAlarmChartOption', () => {
   });
 });
 
-describe('getMetricConfig (任务 7/8/13)', () => {
-  it('returns unit + title for 行程', () => {
-    expect(getMetricConfig('行程')).toEqual({ unit: '%', title: '行程 (%)' });
-  });
-
-  it('matches 行程偏差 exactly, not falls back to 行程', () => {
-    const cfg = getMetricConfig('行程偏差');
-    expect(cfg.unit).toBe('%');
-    expect(cfg.title).toBe('行程偏差 (%)');
-    // 任务 7: ±2% / ±5% 双档
-    expect(cfg.extraMarkLines).toEqual([
+describe('buildStandardMarkLines (任务 7/8/13)', () => {
+  it('偏差类指标画 ± 双档 (行程偏差 [2,5] → ±2% / ±5%)', () => {
+    expect(buildStandardMarkLines([2, 5], '行程偏差', '%')).toEqual([
       { name: '+2%', yAxis: 2 },
       { name: '-2%', yAxis: -2 },
       { name: '+5%', yAxis: 5 },
@@ -92,22 +84,25 @@ describe('getMetricConfig (任务 7/8/13)', () => {
     ]);
   });
 
-  it('matches 反馈信号 with kPa unit', () => {
-    expect(getMetricConfig('反馈信号').unit).toBe('kPa');
+  it('非偏差类只画正值 (行程累计器 [5,8] → 5%/次 与 8%/次)', () => {
+    expect(buildStandardMarkLines([5, 8], '行程累计器', '%/次')).toEqual([
+      { name: '5%/次', yAxis: 5 },
+      { name: '8%/次', yAxis: 8 },
+    ]);
   });
 
-  it('matches 累积器 / 累计器 suffix with y=8 standard line (任务 8)', () => {
-    for (const name of ['累积器', '累计器', '行程累积器', '行程累计器']) {
-      const cfg = getMetricConfig(name);
-      expect(cfg.unit).toBe('次');
-      expect(cfg.extraMarkLines).toEqual([{ name: '标准线', yAxis: 8 }]);
-    }
+  it('单档也支持 (供气压力 [60] → 60kPa)', () => {
+    expect(buildStandardMarkLines([60], '供气压力', 'kPa')).toEqual([
+      { name: '60kPa', yAxis: 60 },
+    ]);
   });
 
-  it('returns empty for unknown / missing keyword', () => {
-    expect(getMetricConfig(undefined)).toEqual({});
-    expect(getMetricConfig('')).toEqual({});
-    expect(getMetricConfig('未知指标')).toEqual({});
+  it('无标准线 / 空数组 / 非数值 → 不画', () => {
+    expect(buildStandardMarkLines(undefined, '行程', '%')).toEqual([]);
+    expect(buildStandardMarkLines([], '行程', '%')).toEqual([]);
+    expect(
+      buildStandardMarkLines([NaN as number], '行程', '%'),
+    ).toEqual([]);
   });
 });
 
@@ -121,10 +116,29 @@ describe('buildAlarmChartOption metric awareness (任务 7/8/13)', () => {
     auxiliaryLine: { averageValue: [2.5, 2.5] },
   };
 
-  it('adds title + Y-axis unit when keywordName provided', () => {
-    const opt = buildAlarmChartOption({ ...basePlot, keywordName: '行程' });
-    expect((opt as { title?: { text: string } }).title?.text).toBe('行程 (%)');
-    expect((opt.yAxis as { name?: string }).name).toBe('%');
+  const markNames = (opt: ReturnType<typeof buildAlarmChartOption>) =>
+    (
+      opt.series as Array<{
+        markLine?: { data: { name: string; yAxis: number }[] };
+      }>
+    )[0].markLine?.data.map((m) => m.name);
+
+  it('标题 = 指标名 + 单位, Y 轴显示单位 (数据源下发)', () => {
+    const opt = buildAlarmChartOption({
+      ...basePlot,
+      keywordName: '供气压力',
+      unit: 'kPa',
+    });
+    expect((opt as { title?: { text: string } }).title?.text).toBe(
+      '供气压力 (kPa)',
+    );
+    expect((opt.yAxis as { name?: string }).name).toBe('kPa');
+  });
+
+  it('只有指标名没有单位时, 标题不带括号', () => {
+    const opt = buildAlarmChartOption({ ...basePlot, keywordName: '警报记录' });
+    expect((opt as { title?: { text: string } }).title?.text).toBe('警报记录');
+    expect((opt.yAxis as { name?: string }).name).toBeUndefined();
   });
 
   it('has no title / no unit when keywordName absent (backward compat)', () => {
@@ -133,37 +147,38 @@ describe('buildAlarmChartOption metric awareness (任务 7/8/13)', () => {
     expect((opt.yAxis as { name?: string }).name).toBeUndefined();
   });
 
-  it('injects ±2%/±5% mark lines for 行程偏差 (任务 7)', () => {
+  it('行程偏差 standardLine [2,5] → ±2%/±5% 双档 (任务 7)', () => {
     const opt = buildAlarmChartOption({
       ...basePlot,
       keywordName: '行程偏差',
+      unit: '%',
+      standardLine: [2, 5],
     });
-    const markData = (
-      opt.series as Array<{ markLine?: { data: { name: string; yAxis: number }[] } }>
-    )[0].markLine?.data;
-    const names = markData?.map((m) => m.name);
-    expect(names).toEqual(
+    expect(markNames(opt)).toEqual(
       expect.arrayContaining(['下限值', '上限值', '+2%', '-2%', '+5%', '-5%']),
     );
   });
 
-  it('injects y=8 mark line for 累积器 (任务 8)', () => {
+  it('行程累计器 standardLine [5,8] → 只画正值 (任务 8)', () => {
     const opt = buildAlarmChartOption({
       ...basePlot,
-      keywordName: '累积器',
+      keywordName: '行程累计器',
+      unit: '%/次',
+      standardLine: [5, 8],
     });
-    const markData = (
-      opt.series as Array<{ markLine?: { data: { name: string; yAxis: number }[] } }>
-    )[0].markLine?.data;
-    expect(markData).toEqual(
-      expect.arrayContaining([{ name: '标准线', yAxis: 8 }]),
+    const names = markNames(opt);
+    expect(names).toEqual(
+      expect.arrayContaining(['下限值', '上限值', '5%/次', '8%/次']),
     );
+    expect(names).not.toContain('-8%/次');
   });
 
-  it('expands yAxis range to cover extra mark lines (行程偏差 -5 < lowerLimit=1)', () => {
+  it('expands yAxis range to cover standard lines (行程偏差 -5 < lowerLimit=1)', () => {
     const opt = buildAlarmChartOption({
       ...basePlot,
       keywordName: '行程偏差',
+      unit: '%',
+      standardLine: [2, 5],
     });
     // rawMin covers -5 → floor(-5) = -5
     expect((opt.yAxis as { min: number }).min).toBe(-5);
@@ -233,6 +248,9 @@ describe('table_valves_travel_month', () => {
 
 describe('stripYear (任务 6/9)', () => {
   it.each([
+    // 数据源的真实表头格式: 日期区间, 两端年份都要去掉
+    ['2025/01/01-2025/03/31', '01/01-03/31'],
+    ['2024/10/01-2024/12/31', '10/01-12/31'],
     ['2023年3月', '3月'],
     ['2025-07', '07'],
     ['2025/07', '07'],
@@ -246,6 +264,10 @@ describe('stripYear (任务 6/9)', () => {
     expect(stripYear(null)).toBe('');
     expect(stripYear(undefined)).toBe('');
     expect(stripYear(2025)).toBe('2025');
+  });
+
+  it('不误伤长得像年份的数值区间', () => {
+    expect(stripYear('1440-2000')).toBe('1440-2000');
   });
 });
 
