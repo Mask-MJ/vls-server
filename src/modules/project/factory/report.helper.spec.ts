@@ -1,11 +1,13 @@
-import { PatchType, TableRow } from 'docx';
+import { Paragraph, PatchType, TableRow } from 'docx';
 import {
   buildAlarmChartOption,
   buildStandardMarkLines,
+  formatCycleValue,
   groupAlarmRows,
   shadingForCycleCell,
   stripYear,
   table_alarm,
+  table_cyclecount_travelaccumulate,
   table_valves_health_month,
   table_valves_travel_month,
   textColorForShading,
@@ -214,8 +216,8 @@ describe('table_alarm (B1)', () => {
       { tag: 'FV-3302', name: '问题C', description: '', time: '2025-05-15' },
     ]);
     expect(result.type).toBe(PatchType.DOCUMENT);
-    // 1 Table 实例（与 children 数组里实例数一致）
-    expect((result.children as unknown[]).length).toBe(1);
+    // 1 Table + 1 尾随 Paragraph (Word 兼容, 见"表格 patch 必须以 Paragraph 收尾")
+    expect((result.children as unknown[]).length).toBe(2);
   });
 
   it('produces N table rows = total problems + 1 header (3 problems → 4 rows)', () => {
@@ -235,6 +237,51 @@ describe('table_alarm (B1)', () => {
   });
 });
 
+// 顾总 07-22 第 6 条: 导出的 docx 一打开就弹"发现无法读取的内容"。
+// OOXML 规定表格后必须跟段落, 否则 Word 判定文档损坏。
+describe('表格 patch 必须以 Paragraph 收尾 (第 6 条)', () => {
+  const lastChildIsParagraph = (patch: { children: unknown[] }) =>
+    patch.children[patch.children.length - 1] instanceof Paragraph;
+
+  it('table_alarm', () => {
+    const r = table_alarm([
+      { tag: 'FV-1', name: '问题A', description: '', time: '2025-05-15' },
+    ]);
+    expect(lastChildIsParagraph(r as { children: unknown[] })).toBe(true);
+  });
+
+  it('table_valves_health_month', () => {
+    const r = table_valves_health_month([
+      { tag: 'FV-1', data: [{ name: '2025年7月', value: 80 }] },
+    ]);
+    expect(lastChildIsParagraph(r as { children: unknown[] })).toBe(true);
+  });
+
+  it('table_cyclecount_travelaccumulate', () => {
+    const cell = (name: string) => ({
+      name,
+      value: 1,
+      style: null as string | null,
+    });
+    const r = table_cyclecount_travelaccumulate([
+      {
+        number: 1,
+        tag: 'FV-1',
+        data: [
+          {
+            time: '2025/01/01-2025/01/30',
+            cycleCount: cell('循环计数'),
+            dailyMovementCount: cell('日动作次数'),
+            travelAccumulator: cell('行程累计器'),
+            amplitudePerAction: cell('次动作幅度'),
+          },
+        ],
+      },
+    ]);
+    expect(lastChildIsParagraph(r as { children: unknown[] })).toBe(true);
+  });
+});
+
 describe('table_valves_travel_month', () => {
   it('returns explicit notice text when records is empty (B2)', () => {
     const result = table_valves_travel_month({
@@ -243,6 +290,22 @@ describe('table_valves_travel_month', () => {
     });
     const json = JSON.stringify(result);
     expect(json).toContain('未发现阀门超出有效Cv操作区间');
+  });
+
+  // 顾总 07-22 第 8 条: "4 inch" 在窄列里被拆成两行
+  it('尺寸列用不换行空格, 避免 "4 inch" 折行', () => {
+    const result = table_valves_travel_month({
+      records: [
+        [
+          { key: 'tag', name: '阀门位号', value: 'FV-1', style: null },
+          { key: 'size', name: '尺寸', value: '4 inch', style: null },
+        ],
+      ],
+      descriptions: [],
+    });
+    const json = JSON.stringify(result);
+    expect(json).toContain('4\u00a0inch');
+    expect(json).not.toContain('4 inch');
   });
 });
 
@@ -286,31 +349,54 @@ describe('textColorForShading (任务 5)', () => {
   });
 });
 
-describe('shadingForCycleCell (任务 6)', () => {
-  it('paints yellow when dailyMovementCount > 1440', () => {
-    expect(shadingForCycleCell('dailyMovementCount', 1441, null)).toBe('#ffff00');
-    expect(shadingForCycleCell('dailyMovementCount', 5000, '#ffff00')).toBe('#ffff00');
+describe('shadingForCycleCell (任务 6 / 顾总 07-22 第 2·9 条)', () => {
+  it('日动作次数 > 1440 标黄', () => {
+    expect(shadingForCycleCell('dailyMovementCount', 1441)).toBe('#ffff00');
+    expect(shadingForCycleCell('dailyMovementCount', 5000)).toBe('#ffff00');
   });
 
-  it('keeps existing style at threshold or below', () => {
-    expect(shadingForCycleCell('dailyMovementCount', 1440, null)).toBe('#ffffff');
-    expect(shadingForCycleCell('dailyMovementCount', 100, '#00b050')).toBe('#00b050');
+  it('次动作幅度 > 8 标黄, 含带 % 的字符串值', () => {
+    expect(shadingForCycleCell('amplitudePerAction', 9)).toBe('#ffff00');
+    // 数据源实际下发的是 "9.92%" 这种字符串, 旧实现 Number() 得 NaN 永远判不出超标
+    expect(shadingForCycleCell('amplitudePerAction', '9.92%')).toBe('#ffff00');
+    expect(shadingForCycleCell('amplitudePerAction', '8.5%')).toBe('#ffff00');
   });
 
-  it('paints yellow when amplitudePerAction > 8', () => {
-    expect(shadingForCycleCell('amplitudePerAction', 9, null)).toBe('#ffff00');
-    expect(shadingForCycleCell('amplitudePerAction', 8, null)).toBe('#ffffff');
+  it('未超阈值不标色', () => {
+    expect(shadingForCycleCell('dailyMovementCount', 1440)).toBe('#ffffff');
+    expect(shadingForCycleCell('dailyMovementCount', 100)).toBe('#ffffff');
+    expect(shadingForCycleCell('amplitudePerAction', 8)).toBe('#ffffff');
+    expect(shadingForCycleCell('amplitudePerAction', '5.16%')).toBe('#ffffff');
   });
 
-  it('does not apply threshold to unrelated keys', () => {
-    expect(shadingForCycleCell('cycleCount', 999999, null)).toBe('#ffffff');
-    expect(shadingForCycleCell('travelAccumulator', 999999, '#00b050')).toBe('#00b050');
+  it('只有这两列有阈值, 其余列一律不标', () => {
+    expect(shadingForCycleCell('cycleCount', 999999)).toBe('#ffffff');
+    expect(shadingForCycleCell('travelAccumulator', 999999)).toBe('#ffffff');
   });
 
-  it('tolerates null / empty / non-numeric value', () => {
-    expect(shadingForCycleCell('dailyMovementCount', null, null)).toBe('#ffffff');
-    expect(shadingForCycleCell('dailyMovementCount', '', '#00b050')).toBe('#00b050');
-    expect(shadingForCycleCell('dailyMovementCount', 'abc', null)).toBe('#ffffff');
+  it('容错 null / 空串 / 非数值', () => {
+    expect(shadingForCycleCell('dailyMovementCount', null)).toBe('#ffffff');
+    expect(shadingForCycleCell('dailyMovementCount', '')).toBe('#ffffff');
+    expect(shadingForCycleCell('dailyMovementCount', 'abc')).toBe('#ffffff');
+  });
+});
+
+describe('formatCycleValue (顾总 07-22 第 9 条: 保留 1 位小数)', () => {
+  it.each([
+    ['9.92%', '9.9%'],
+    ['5.16%', '5.2%'],
+    [3272.456, '3272.5'],
+    [11485, '11485'], // 整数不补 .0
+    ['48131', '48131'],
+  ])('%s → %s', (input, expected) => {
+    expect(formatCycleValue(input)).toBe(expected);
+  });
+
+  it('空值渲染成空串, 非数值原样输出', () => {
+    expect(formatCycleValue(null)).toBe('');
+    expect(formatCycleValue(undefined)).toBe('');
+    expect(formatCycleValue('')).toBe('');
+    expect(formatCycleValue('N/A')).toBe('N/A');
   });
 });
 
