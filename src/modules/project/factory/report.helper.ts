@@ -48,17 +48,41 @@ const CYCLE_OVERLIMIT: { [key: string]: number } = {
   amplitudePerAction: 8,
 };
 const OVERLIMIT_SHADING = '#ffff00';
+const NO_SHADING = '#ffffff';
+
+// 次动作幅度的值是带单位的字符串 ("9.92%"), Number() 会得 NaN 使阈值判断永远失效,
+// 必须用 parseFloat 先剥掉后缀。
+export const parseCycleValue = (
+  value: string | number | null | undefined,
+): number =>
+  typeof value === 'number' ? value : parseFloat(String(value ?? ''));
+
+// 超标标色 (顾总 2026-07-22 反馈第 2/9 条): 只有日动作次数 > 1440 / 次动作幅度 > 8
+// 才标黄, 其余一律无底色 —— 数据源下发的 2/5/8 三档配色 (>2 黄 / >5 红 / >8 紫)
+// 不采用, 故不再回退到 originalStyle。
 export const shadingForCycleCell = (
   key: string,
   value: string | number | null | undefined,
-  originalStyle: string | null | undefined,
 ): string => {
   const threshold = CYCLE_OVERLIMIT[key];
-  const numeric = Number(value);
-  if (threshold !== undefined && Number.isFinite(numeric) && numeric > threshold) {
-    return OVERLIMIT_SHADING;
-  }
-  return originalStyle || '#ffffff';
+  const numeric = parseCycleValue(value);
+  return threshold !== undefined &&
+    Number.isFinite(numeric) &&
+    numeric > threshold
+    ? OVERLIMIT_SHADING
+    : NO_SHADING;
+};
+
+// 数值保留 1 位小数 (顾总反馈第 9 条)。整数不补 ".0" —— 循环计数这类本就是整数,
+// 写成 11485.0 反而难看; 保留原有的 "%" 后缀。
+export const formatCycleValue = (
+  value: string | number | null | undefined,
+): string => {
+  const numeric = parseCycleValue(value);
+  if (!Number.isFinite(numeric)) return value == null ? '' : String(value);
+  const suffix =
+    typeof value === 'string' && value.trim().endsWith('%') ? '%' : '';
+  return `${Math.round(numeric * 10) / 10}${suffix}`;
 };
 
 interface ReportProblemTable {
@@ -272,6 +296,9 @@ export const table_alarm = (data: ReportProblemTable[]) => {
           ...rows,
         ],
       }),
+      // OOXML 要求表格后必须跟一个段落, 否则 Word 打开时报"发现无法读取的内容"
+      // (顾总 2026-07-22 反馈第 6 条)。两个表格直接相邻也会被 Word 合并成一个。
+      new Paragraph({}),
     ],
   };
 };
@@ -525,6 +552,8 @@ export const table_valves_health_month = (
           }),
         ],
       }),
+      // 见 table_alarm 中的说明: 表格后必须跟段落, 否则 Word 报文档损坏
+      new Paragraph({}),
     ],
   };
 };
@@ -796,6 +825,11 @@ export const table_valves_travel_month = (data: ValveTravelHistoryRecord) => {
                 ) {
                   return cell.value ? '✓' : '';
                 }
+                // 尺寸值形如 "4 inch", 窄列里会在空格处断成两行 (顾总反馈第 8 条),
+                // 用不换行空格钉住, 让 Word 去撑列宽而不是折行
+                if (cell.key === 'size') {
+                  return cell.value ? String(cell.value).replace(/ /g, '\u00a0') : '';
+                }
                 return cell.value ? cell.value + '' : '';
               };
               children.push(
@@ -976,7 +1010,7 @@ export const table_cyclecount_travelaccumulate = (
                           alignment: AlignmentType.CENTER,
                           children: [
                             new TextRun({
-                              text: `${cell[i].value || ''}`,
+                              text: formatCycleValue(cell[i].value),
                               color: '#000000',
                             }),
                           ],
@@ -985,7 +1019,7 @@ export const table_cyclecount_travelaccumulate = (
                       shading: {
                         fill: 'b79c2f',
                         type: ShadingType.SOLID,
-                        color: shadingForCycleCell(i, cell[i].value, cell[i].style),
+                        color: shadingForCycleCell(i, cell[i].value),
                       },
                     }),
                   );
@@ -996,6 +1030,8 @@ export const table_cyclecount_travelaccumulate = (
           }),
         ],
       }),
+      // 见 table_alarm 中的说明: 表格后必须跟段落, 否则 Word 报文档损坏
+      new Paragraph({}),
     ],
   };
 };
