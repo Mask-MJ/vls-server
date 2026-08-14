@@ -29,6 +29,22 @@ const DARK_SHADING = new Set(['#6e298d', '#ff0000']);
 export const textColorForShading = (shading: string | null | undefined): string =>
   DARK_SHADING.has(String(shading || '').toLowerCase()) ? '#ffffff' : '#000000';
 
+// 图片编号 (顾总 2026-08-14 反馈: 导出的报告 Word 一打开就报"发现无法读取的内容")
+// docx 的每个 ImageRun 各自 new 一个 id 生成器, 于是文档里每张图的 wp:docPr id 都是 1,
+// 而 OOXML 要求它在整个文档内唯一 —— 实测把重复 id 改唯一后同一份文件就能正常打开。
+// 起点 1000: 模板自带图片已占用 9/31/71/75/86~89/233, 避开它们。
+let docPrSeq = 1000;
+
+// SVG 图表统一走这里, 保证每张图拿到唯一 docPr id
+const chartImage = (svg: string, width: number, height: number, name: string) =>
+  new ImageRun({
+    type: 'svg',
+    data: Buffer.from(svg, 'utf-8'),
+    transformation: { width, height },
+    fallback: { type: 'png', data: readFileSync('public/linux-png.png') },
+    altText: { name, id: String(docPrSeq++) },
+  });
+
 // 窗边框 (行程历史 / 周期计数页要求)
 const BOX_BORDER = { style: BorderStyle.SINGLE, size: 4, color: '000000' };
 const TABLE_BORDERS = {
@@ -340,15 +356,7 @@ export const chart_valves_health_overview = (
   return {
     type: PatchType.PARAGRAPH,
     children: [
-      new ImageRun({
-        type: 'svg',
-        data: Buffer.from(chart.renderToSVGString(), 'utf-8'),
-        transformation: { width: 250, height: 300 },
-        fallback: {
-          type: 'png',
-          data: readFileSync('public/linux-png.png'),
-        },
-      }),
+      chartImage(chart.renderToSVGString(), 250, 300, '阀门健康分布图'),
     ],
   };
 };
@@ -397,15 +405,7 @@ export const chart_values_alarm_overivew = (
   return {
     type: PatchType.PARAGRAPH,
     children: [
-      new ImageRun({
-        type: 'svg',
-        data: Buffer.from(chart.renderToSVGString(), 'utf-8'),
-        transformation: { width: 250, height: 300 },
-        fallback: {
-          type: 'png',
-          data: readFileSync('public/linux-png.png'),
-        },
-      }),
+      chartImage(chart.renderToSVGString(), 250, 300, '阀门告警占比图'),
     ],
   };
 };
@@ -470,15 +470,7 @@ export const chart_valves_quarter = (
     type: PatchType.PARAGRAPH,
     children: [
       new TextRun({ text: ` `, break: 1 }),
-      new ImageRun({
-        type: 'svg',
-        data: Buffer.from(chart.renderToSVGString(), 'utf-8'),
-        transformation: { width: 500, height: 300 },
-        fallback: {
-          type: 'png',
-          data: readFileSync('public/linux-png.png'),
-        },
-      }),
+      chartImage(chart.renderToSVGString(), 500, 300, '阀门季度状态图'),
     ],
   };
 };
@@ -649,54 +641,59 @@ export function buildAlarmChartOption(
   };
 }
 
+// 数据源对"没有曲线"的问题下发的是空数组 plot: [], 有曲线时才是对象。
+// times / dataLine 是画图的原料, auxiliaryLine / predictionLine 会被 buildAlarmChartOption
+// 直接解引用 —— 少任何一个都只出文字, 不能让整份报告 500。
+export const hasPlotData = (
+  plot: ValveDetailItem['plot'],
+): plot is NonNullable<ValveDetailItem['plot']> =>
+  !!plot &&
+  !Array.isArray(plot) &&
+  !!plot.times?.length &&
+  !!plot.dataLine?.length &&
+  !!plot.auxiliaryLine &&
+  !!plot.predictionLine;
+
 // 问题详情列表
 export const detail_valves_alarm = (data: ValveDetail[]) => {
   const renderArray = data.map((list, index) => {
     const r = list.items.map((item) => {
-      let chart: echarts.ECharts | undefined = undefined;
-      // item.plot 不是空对象
-      if (
-        item.plot &&
-        Object.keys(item.plot).length > 0 &&
-        item.plot.times &&
-        item.plot.dataLine
-      ) {
-        chart = echarts.init(null, null, {
-          renderer: 'svg',
-          ssr: true,
-          width: 400,
-          height: 300,
-        });
-        chart.setOption(buildAlarmChartOption(item.plot));
+      const lines = [
+        new TextRun({
+          text: `${item.sort}：`,
+          bold: true,
+          break: 1,
+        }),
+        new TextRun({ text: `阀门位号：${item.tag}`, break: 1 }),
+        new TextRun({
+          text: `问题描述：${item.description}`,
+          break: 1,
+        }),
+        new TextRun({ text: `潜在风险：${item.risk}`, break: 1 }),
+        new TextRun({ text: `建议措施：${item.measures}`, break: 1 }),
+        new TextRun({ text: ` `, break: 1 }),
+      ];
+      // 没有曲线的问题(阶跃响应 / PD 一键测试等)只出文字, 不能整条丢掉
+      // —— 顾总 08-14 那份报告 11 条问题里 8 条就是这么消失的
+      if (!hasPlotData(item.plot)) return lines;
 
-        return [
-          new TextRun({
-            text: `${item.sort}：`,
-            bold: true,
-            break: 1,
-          }),
-          new TextRun({ text: `阀门位号：${item.tag}`, break: 1 }),
-          new TextRun({
-            text: `问题描述：${item.description}`,
-            break: 1,
-          }),
-          new TextRun({ text: `潜在风险：${item.risk}`, break: 1 }),
-          new TextRun({ text: `建议措施：${item.measures}`, break: 1 }),
-          new TextRun({ text: ` `, break: 1 }),
-
-          chart &&
-            new ImageRun({
-              type: 'svg',
-              data: Buffer.from(chart.renderToSVGString(), 'utf-8'),
-              // Why: 与 chart 渲染尺寸一致，避免 500x300 拉伸 400x300 数据图变形
-              transformation: { width: 400, height: 300 },
-              fallback: {
-                type: 'png',
-                data: readFileSync('public/linux-png.png'),
-              },
-            }),
-        ];
-      }
+      const chart = echarts.init(null, null, {
+        renderer: 'svg',
+        ssr: true,
+        width: 400,
+        height: 300,
+      });
+      chart.setOption(buildAlarmChartOption(item.plot));
+      return [
+        ...lines,
+        // Why: 尺寸与 chart 渲染一致，避免 500x300 拉伸 400x300 数据图变形
+        chartImage(
+          chart.renderToSVGString(),
+          400,
+          300,
+          `${item.tag} ${item.plot.keywordName || ''}`.trim(),
+        ),
+      ];
     });
     const flattenedR = r.flat();
     return [

@@ -2,10 +2,14 @@ import { Paragraph, PatchType, TableRow } from 'docx';
 import {
   buildAlarmChartOption,
   buildStandardMarkLines,
+  chart_values_alarm_overivew,
+  chart_valves_health_overview,
+  chart_valves_quarter,
   formatCycleValue,
   groupAlarmRows,
   shadingForCycleCell,
   stripYear,
+  detail_valves_alarm,
   table_alarm,
   table_cyclecount_travelaccumulate,
   table_valves_health_month,
@@ -279,6 +283,87 @@ describe('表格 patch 必须以 Paragraph 收尾 (第 6 条)', () => {
       },
     ]);
     expect(lastChildIsParagraph(r as { children: unknown[] })).toBe(true);
+  });
+});
+
+// 顾总 08-14: 导出的报告 Word 一打开就报"发现无法读取的内容"。
+// 实测把重复的 wp:docPr id 改唯一后同一份文件即可正常打开 —— docx 每个 ImageRun
+// 各自从 1 开始编号, 一份报告里多张图就撞号, 而 OOXML 要求文档内唯一。
+describe('图片 docPr id 必须文档内唯一 (08-14 打不开)', () => {
+  // docx 没暴露读 docPr 的接口, 只能从组件树里挖: wp:docPr → _attr → id
+  const collectDocPrIds = (node: any): string[] => {
+    if (!node || typeof node !== 'object') return [];
+    if (node.rootKey === 'wp:docPr') {
+      const id = node.root?.[0]?.root?.id?.value;
+      return id === undefined ? [] : [String(id)];
+    }
+    return Array.isArray(node.root) ? node.root.flatMap(collectDocPrIds) : [];
+  };
+
+  it('三张图表的 docPr id 互不相同', () => {
+    const ids = [
+      chart_valves_health_overview([{ name: '0-60', value: 1 }]),
+      chart_values_alarm_overivew([{ name: '正常', value: 1 }]),
+      chart_valves_quarter([{ name: '第一季度', alert: 1, normal: 2 }]),
+    ].flatMap((c) => c.children.flatMap(collectDocPrIds));
+
+    expect(ids).toHaveLength(3);
+    expect(new Set(ids).size).toBe(3);
+  });
+});
+
+// 顾总 08-14 那份报告: 11 条问题只出现了 3 条 —— 数据源对没有曲线的问题下发 plot: [],
+// 旧实现直接跳过整条, 描述/风险/措施一起丢了。
+describe('detail_valves_alarm 无曲线的问题也要出文字', () => {
+  const item = (plot: unknown): ValveDetailItem =>
+    ({
+      sort: '问题: 阶跃响应',
+      tag: 'FV-1',
+      description: '阶跃响应不符合规格',
+      risk: '阀座和填料变形',
+      measures: '检查阀门附件',
+      name: '',
+      plot,
+    }) as ValveDetailItem;
+
+  it.each([
+    ['空数组 plot: []', [] as unknown],
+    ['空对象 plot: {}', {}],
+    [
+      '缺 dataLine',
+      { times: ['2026-01'], auxiliaryLine: {}, predictionLine: {} },
+    ],
+    [
+      '缺 auxiliaryLine',
+      { times: ['2026-01'], dataLine: [1], predictionLine: {} },
+    ],
+  ])('%s → 仍输出描述/风险/措施', (_label, plot) => {
+    const json = JSON.stringify(
+      detail_valves_alarm([{ tag: 'FV-1', items: [item(plot)] }]),
+    );
+    expect(json).toContain('阶跃响应不符合规格');
+    expect(json).toContain('阀座和填料变形');
+    expect(json).toContain('检查阀门附件');
+  });
+
+  it('有完整曲线时照常带图', () => {
+    const plot = {
+      times: ['2026-01', '2026-02'],
+      dataLine: [1, 2],
+      upperLimit: 5,
+      lowerLimit: 0,
+      auxiliaryLine: { averageValue: [1.5, 1.5] },
+      predictionLine: { linearRegression: [1, 2] },
+    };
+    const result: any = detail_valves_alarm([
+      { tag: 'FV-1', items: [item(plot)] },
+    ]);
+    const runs = result.children[0].root.filter(
+      (n: any) => n?.rootKey === 'w:r',
+    );
+    expect(runs.some((r: any) => JSON.stringify(r).includes('w:drawing'))).toBe(
+      true,
+    );
   });
 });
 
